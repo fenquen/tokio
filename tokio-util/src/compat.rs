@@ -266,10 +266,3 @@ impl<T: std::os::unix::io::AsRawFd> std::os::unix::io::AsRawFd for Compat<T> {
         self.inner.as_raw_fd()
     }
 }
-
-#[cfg(windows)]
-impl<T: std::os::windows::io::AsRawHandle> std::os::windows::io::AsRawHandle for Compat<T> {
-    fn as_raw_handle(&self) -> std::os::windows::io::RawHandle {
-        self.inner.as_raw_handle()
-    }
-}

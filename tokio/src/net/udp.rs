@@ -254,15 +254,6 @@ impl UdpSocket {
                 .map(IntoRawFd::into_raw_fd)
                 .map(|raw_fd| unsafe { std::net::UdpSocket::from_raw_fd(raw_fd) })
         }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-            self.io
-                .into_inner()
-                .map(|io| io.into_raw_socket())
-                .map(|raw_socket| unsafe { std::net::UdpSocket::from_raw_socket(raw_socket) })
-        }
     }
 
     fn as_socket(&self) -> socket2::SockRef<'_> {

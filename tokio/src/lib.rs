@@ -16,6 +16,7 @@
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
 ))]
+#![allow(non_snake_case, unused_variables)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
 #![cfg_attr(loom, allow(dead_code, unreachable_pub))]
@@ -571,7 +572,7 @@ mod trace {
     }
 
     #[cfg_attr(not(feature = "sync"), allow(dead_code))]
-    pub(crate) fn async_trace_leaf() -> impl Future<Output = ()> {
+    pub(crate) fn async_trace_leaf() -> impl Future<Output=()> {
         struct Trace;
 
         impl Future for Trace {

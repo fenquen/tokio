@@ -35,14 +35,7 @@ mock! {
         pub fn sync_data(&self) -> io::Result<()>;
         pub fn try_clone(&self) -> io::Result<Self>;
     }
-    #[cfg(windows)]
-    impl std::os::windows::io::AsRawHandle for File {
-        fn as_raw_handle(&self) -> std::os::windows::io::RawHandle;
-    }
-    #[cfg(windows)]
-    impl std::os::windows::io::FromRawHandle for File {
-        unsafe fn from_raw_handle(h: std::os::windows::io::RawHandle) -> Self;
-    }
+
     #[cfg(unix)]
     impl std::os::unix::io::AsRawFd for File {
         fn as_raw_fd(&self) -> std::os::unix::io::RawFd;

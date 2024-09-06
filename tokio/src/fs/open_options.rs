@@ -12,8 +12,6 @@ use std::fs::OpenOptions as StdOpenOptions;
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
 
 /// Options and flags which can be used to configure how a file is opened.
 ///

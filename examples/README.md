@@ -9,8 +9,8 @@ All examples can be executed with:
 cargo run --example $name
 ```
 
-A good starting point for the examples would be [`hello_world`](hello_world.rs)
-and [`echo`](echo.rs). Additionally [the tokio website][tokioweb] contains
+A good starting point for the examples would be [`hello_world`](echo_client)
+and [`echo`](echo_server). Additionally [the tokio website][tokioweb] contains
 additional guides for some of the examples.
 
 For a larger "real world" example, see the [`mini-redis`][redis] repository.

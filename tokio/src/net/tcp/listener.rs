@@ -158,14 +158,9 @@ impl TcpListener {
     /// }
     /// ```
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let (mio, addr) = self
-            .io
-            .registration()
-            .async_io(Interest::READABLE, || self.io.accept())
-            .await?;
-
-        let stream = TcpStream::new(mio)?;
-        Ok((stream, addr))
+        let (mioTcpStream, socketAddr) = self.io.registration().async_io(Interest::READABLE, || self.io.accept()).await?;
+        let tcpStream = TcpStream::new(mioTcpStream)?;
+        Ok((tcpStream, socketAddr))
     }
 
     /// Polls to accept a new incoming connection to this listener.
@@ -269,24 +264,6 @@ impl TcpListener {
             self.io
                 .into_inner()
                 .map(IntoRawFd::into_raw_fd)
-                .map(|raw_fd| unsafe { std::net::TcpListener::from_raw_fd(raw_fd) })
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-            self.io
-                .into_inner()
-                .map(|io| io.into_raw_socket())
-                .map(|raw_socket| unsafe { std::net::TcpListener::from_raw_socket(raw_socket) })
-        }
-
-        #[cfg(target_os = "wasi")]
-        {
-            use std::os::wasi::io::{FromRawFd, IntoRawFd};
-            self.io
-                .into_inner()
-                .map(|io| io.into_raw_fd())
                 .map(|raw_fd| unsafe { std::net::TcpListener::from_raw_fd(raw_fd) })
         }
     }

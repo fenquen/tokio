@@ -252,24 +252,6 @@ impl TcpStream {
                 .map(IntoRawFd::into_raw_fd)
                 .map(|raw_fd| unsafe { std::net::TcpStream::from_raw_fd(raw_fd) })
         }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-            self.io
-                .into_inner()
-                .map(|io| io.into_raw_socket())
-                .map(|raw_socket| unsafe { std::net::TcpStream::from_raw_socket(raw_socket) })
-        }
-
-        #[cfg(target_os = "wasi")]
-        {
-            use std::os::wasi::io::{FromRawFd, IntoRawFd};
-            self.io
-                .into_inner()
-                .map(|io| io.into_raw_fd())
-                .map(|raw_fd| unsafe { std::net::TcpStream::from_raw_fd(raw_fd) })
-        }
     }
 
     /// Returns the local address that this stream is bound to.

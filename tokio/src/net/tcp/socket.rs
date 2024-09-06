@@ -639,10 +639,6 @@ impl TcpSocket {
             if err.raw_os_error() != Some(libc::EINPROGRESS) {
                 return Err(err);
             }
-            #[cfg(windows)]
-            if err.kind() != io::ErrorKind::WouldBlock {
-                return Err(err);
-            }
         }
         #[cfg(unix)]
         let mio = {
@@ -650,14 +646,6 @@ impl TcpSocket {
 
             let raw_fd = self.inner.into_raw_fd();
             unsafe { mio::net::TcpStream::from_raw_fd(raw_fd) }
-        };
-
-        #[cfg(windows)]
-        let mio = {
-            use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-
-            let raw_socket = self.inner.into_raw_socket();
-            unsafe { mio::net::TcpStream::from_raw_socket(raw_socket) }
         };
 
         TcpStream::connect_mio(mio).await
@@ -708,14 +696,6 @@ impl TcpSocket {
             unsafe { mio::net::TcpListener::from_raw_fd(raw_fd) }
         };
 
-        #[cfg(windows)]
-        let mio = {
-            use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-
-            let raw_socket = self.inner.into_raw_socket();
-            unsafe { mio::net::TcpListener::from_raw_socket(raw_socket) }
-        };
-
         TcpListener::new(mio)
     }
 
@@ -759,14 +739,6 @@ impl TcpSocket {
 
             let raw_fd = std_stream.into_raw_fd();
             unsafe { TcpSocket::from_raw_fd(raw_fd) }
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::io::{FromRawSocket, IntoRawSocket};
-
-            let raw_socket = std_stream.into_raw_socket();
-            unsafe { TcpSocket::from_raw_socket(raw_socket) }
         }
     }
 }
