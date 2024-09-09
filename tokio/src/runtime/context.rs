@@ -60,8 +60,7 @@ struct Context {
     #[cfg(any(feature = "rt", feature = "macros", feature = "time"))]
     rng: Cell<Option<FastRand>>,
 
-    /// Tracks the amount of "work" a task may still do before yielding back to
-    /// the scheduler
+    /// Tracks the amount of "work" a task may still do before yielding back to the scheduler
     budget: Cell<coop::Budget>,
 
     #[cfg(all(

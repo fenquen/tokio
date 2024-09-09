@@ -26,10 +26,7 @@ where
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<R> {
         let me = &mut *self;
-        let func = me
-            .func
-            .take()
-            .expect("[internal exception] blocking task ran twice.");
+        let func = me.func.take().expect("[internal exception] blocking task ran twice.");
 
         // This is a little subtle:
         // For convenience, we'd like _every_ call tokio ever makes to Task::poll() to be budgeted

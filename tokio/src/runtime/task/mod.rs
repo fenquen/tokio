@@ -218,7 +218,7 @@ use std::{fmt, mem};
 /// An owned handle to the task, tracked by ref count.
 #[repr(transparent)]
 pub(crate) struct Task<S: 'static> {
-    raw: RawTask,
+    rawTask: RawTask,
     _p: PhantomData<S>,
 }
 
@@ -292,8 +292,7 @@ cfg_rt! {
     /// created. The first task reference is usually put into an `OwnedTasks`
     /// immediately. The Notified is sent to the scheduler as an ordinary
     /// notification.
-    fn new_task<T, S>(
-        task: T,
+    fn new_task<T, S>(task: T,
         scheduler: S,
         id: Id,
     ) -> (Task<S>, Notified<S>, JoinHandle<T::Output>)
@@ -302,16 +301,19 @@ cfg_rt! {
         T: Future + 'static,
         T::Output: 'static,
     {
-        let raw = RawTask::new::<T, S>(task, scheduler, id);
+        let rawTask = RawTask::new::<T, S>(task, scheduler, id);
+
         let task = Task {
-            raw,
+            rawTask,
             _p: PhantomData,
         };
+
         let notified = Notified(Task {
-            raw,
+            rawTask,
             _p: PhantomData,
         });
-        let join = JoinHandle::new(raw);
+
+        let join = JoinHandle::new(rawTask);
 
         (task, notified, join)
     }
@@ -330,21 +332,22 @@ cfg_rt! {
 
         // This transfers the ref-count of task and notified into an UnownedTask.
         // This is valid because an UnownedTask holds two ref-counts.
-        let unowned = UnownedTask {
-            raw: task.raw,
+        let unownedTask = UnownedTask {
+            raw: task.rawTask,
             _p: PhantomData,
         };
-        std::mem::forget(task);
-        std::mem::forget(notified);
 
-        (unowned, join)
+        mem::forget(task);
+        mem::forget(notified);
+
+        (unownedTask, join)
     }
 }
 
 impl<S: 'static> Task<S> {
     unsafe fn new(raw: RawTask) -> Task<S> {
         Task {
-            raw,
+            rawTask: raw,
             _p: PhantomData,
         }
     }
@@ -361,15 +364,15 @@ impl<S: 'static> Task<S> {
         any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
     ))]
     pub(super) fn as_raw(&self) -> RawTask {
-        self.raw
+        self.rawTask
     }
 
     fn header(&self) -> &Header {
-        self.raw.header()
+        self.rawTask.header()
     }
 
     fn header_ptr(&self) -> NonNull<Header> {
-        self.raw.header_ptr()
+        self.rawTask.header_ptr()
     }
 
     cfg_taskdump! {
@@ -380,7 +383,7 @@ impl<S: 'static> Task<S> {
             if self.as_raw().state().transition_to_notified_for_tracing() {
                 // SAFETY: `transition_to_notified_for_tracing` increments the
                 // refcount.
-                Some(unsafe { Notified(Task::new(self.raw)) })
+                Some(unsafe { Notified(Task::new(self.rawTask)) })
             } else {
                 None
             }
@@ -394,7 +397,7 @@ impl<S: 'static> Task<S> {
         #[cfg_attr(docsrs, doc(cfg(tokio_unstable)))]
         pub(crate) fn id(&self) -> crate::task::Id {
             // Safety: The header pointer is valid.
-            unsafe { Header::get_id(self.raw.header_ptr()) }
+            unsafe { Header::get_id(self.rawTask.header_ptr()) }
         }
     }
 }
@@ -413,7 +416,7 @@ impl<S: 'static> Notified<S> {
 
 impl<S: 'static> Notified<S> {
     pub(crate) fn into_raw(self) -> RawTask {
-        let raw = self.0.raw;
+        let raw = self.0.rawTask;
         mem::forget(self);
         raw
     }
@@ -422,7 +425,7 @@ impl<S: 'static> Notified<S> {
 impl<S: Schedule> Task<S> {
     /// Preemptively cancels the task as part of the shutdown process.
     pub(crate) fn shutdown(self) {
-        let raw = self.raw;
+        let raw = self.rawTask;
         mem::forget(self);
         raw.shutdown();
     }
@@ -431,7 +434,7 @@ impl<S: Schedule> Task<S> {
 impl<S: Schedule> LocalNotified<S> {
     /// Runs the task.
     pub(crate) fn run(self) {
-        let raw = self.task.raw;
+        let raw = self.task.rawTask;
         mem::forget(self);
         raw.poll();
     }
@@ -448,7 +451,7 @@ impl<S: Schedule> UnownedTask<S> {
     fn into_task(self) -> Task<S> {
         // Convert into a task.
         let task = Task {
-            raw: self.raw,
+            rawTask: self.raw,
             _p: PhantomData,
         };
         mem::forget(self);
@@ -465,7 +468,7 @@ impl<S: Schedule> UnownedTask<S> {
 
         // Transfer one ref-count to a Task object.
         let task = Task::<S> {
-            raw,
+            rawTask: raw,
             _p: PhantomData,
         };
 
@@ -485,7 +488,7 @@ impl<S: 'static> Drop for Task<S> {
         // Decrement the ref count
         if self.header().state.ref_dec() {
             // Deallocate if this is the final ref count
-            self.raw.dealloc();
+            self.rawTask.dealloc();
         }
     }
 }
@@ -520,7 +523,7 @@ unsafe impl<S> linked_list::Link for Task<S> {
     type Target = Header;
 
     fn as_raw(handle: &Task<S>) -> NonNull<Header> {
-        handle.raw.header_ptr()
+        handle.rawTask.header_ptr()
     }
 
     unsafe fn from_raw(ptr: NonNull<Header>) -> Task<S> {

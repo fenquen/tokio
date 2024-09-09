@@ -30,6 +30,7 @@ impl BlockingSchedule {
                 scheduler::Handle::MultiThreadAlt(_) => {}
             }
         }
+
         BlockingSchedule {
             #[cfg(feature = "test-util")]
             handle: handle.clone(),

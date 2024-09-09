@@ -64,9 +64,7 @@ impl<T> Mutex<T> {
 
     #[inline]
     pub(crate) fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
-        self.1
-            .try_lock()
-            .map(|guard| MutexGuard(PhantomData, guard))
+        self.1.try_lock().map(|guard| MutexGuard(PhantomData, guard))
     }
 
     #[inline]

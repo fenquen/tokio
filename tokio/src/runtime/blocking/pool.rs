@@ -121,7 +121,7 @@ struct Shared {
 }
 
 pub(crate) struct Task {
-    task: task::UnownedTask<BlockingSchedule>,
+    unownedTask: task::UnownedTask<BlockingSchedule>,
     mandatory: Mandatory,
 }
 
@@ -152,18 +152,18 @@ impl From<SpawnError> for io::Error {
 }
 
 impl Task {
-    pub(crate) fn new(task: task::UnownedTask<BlockingSchedule>, mandatory: Mandatory) -> Task {
-        Task { task, mandatory }
+    pub(crate) fn new(unownedTask: task::UnownedTask<BlockingSchedule>, mandatory: Mandatory) -> Task {
+        Task { unownedTask, mandatory }
     }
 
     fn run(self) {
-        self.task.run();
+        self.unownedTask.run();
     }
 
     fn shutdown_or_run_if_mandatory(self) {
         match self.mandatory {
-            Mandatory::NonMandatory => self.task.shutdown(),
-            Mandatory::Mandatory => self.task.run(),
+            Mandatory::NonMandatory => self.unownedTask.shutdown(),
+            Mandatory::Mandatory => self.unownedTask.run(),
         }
     }
 }
@@ -180,8 +180,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    let rt = Handle::current();
-    rt.spawn_blocking(func)
+    Handle::current().spawn_blocking(func)
 }
 
 cfg_fs! {
@@ -202,8 +201,6 @@ cfg_fs! {
         rt.inner.blocking_spawner().spawn_mandatory_blocking(&rt, func)
     }
 }
-
-// ===== impl BlockingPool =====
 
 impl BlockingPool {
     pub(crate) fn new(builder: &Builder, thread_cap: usize) -> BlockingPool {
@@ -290,8 +287,6 @@ impl fmt::Debug for BlockingPool {
     }
 }
 
-// ===== impl Spawner =====
-
 impl Spawner {
     #[track_caller]
     pub(crate) fn spawn_blocking<F, R>(&self, rt: &Handle, func: F) -> JoinHandle<R>
@@ -300,7 +295,7 @@ impl Spawner {
         R: Send + 'static,
     {
         let (join_handle, spawn_result) =
-            if cfg!(debug_assertions) && std::mem::size_of::<F>() > BOX_FUTURE_THRESHOLD {
+            if cfg!(debug_assertions) && size_of::<F>() > BOX_FUTURE_THRESHOLD {
                 self.spawn_blocking_inner(Box::new(func), Mandatory::NonMandatory, None, rt)
             } else {
                 self.spawn_blocking_inner(func, Mandatory::NonMandatory, None, rt)
@@ -310,9 +305,7 @@ impl Spawner {
             Ok(()) => join_handle,
             // Compat: do not panic here, return the join_handle even though it will never resolve
             Err(SpawnError::ShuttingDown) => join_handle,
-            Err(SpawnError::NoThreads(e)) => {
-                panic!("OS can't spawn worker thread: {}", e)
-            }
+            Err(SpawnError::NoThreads(e)) => panic!("OS can't spawn worker thread: {}", e)
         }
     }
 
@@ -352,19 +345,18 @@ impl Spawner {
     }
 
     #[track_caller]
-    pub(crate) fn spawn_blocking_inner<F, R>(
-        &self,
-        func: F,
-        is_mandatory: Mandatory,
-        name: Option<&str>,
-        rt: &Handle,
-    ) -> (JoinHandle<R>, Result<(), SpawnError>)
+    pub(crate) fn spawn_blocking_inner<F, R>(&self,
+                                             func: F,
+                                             mandatory: Mandatory,
+                                             name: Option<&str>,
+                                             rt: &Handle) -> (JoinHandle<R>, Result<(), SpawnError>)
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let fut = BlockingTask::new(func);
+        let blockingTask = BlockingTask::new(func);
         let id = task::Id::next();
+
         #[cfg(all(tokio_unstable, feature = "tracing"))]
         let fut = {
             use tracing::Instrument;
@@ -380,15 +372,16 @@ impl Spawner {
                 loc.line = location.line(),
                 loc.col = location.column(),
             );
-            fut.instrument(span)
+            blockingTask.instrument(span)
         };
 
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         let _ = name;
 
-        let (task, handle) = task::unowned(fut, BlockingSchedule::new(rt), id);
+        let (unownedTask, handle) = task::unowned(blockingTask, BlockingSchedule::new(rt), id);
 
-        let spawned = self.spawn_task(Task::new(task, is_mandatory), rt);
+        let spawned = self.spawn_task(Task::new(unownedTask, mandatory), rt);
+
         (handle, spawned)
     }
 
@@ -399,7 +392,7 @@ impl Spawner {
             // Shutdown the task: it's fine to shutdown this task (even if
             // mandatory) because it was scheduled after the shutdown of the
             // runtime began.
-            task.task.shutdown();
+            task.unownedTask.shutdown();
 
             // no need to even push this task; it would never get picked up
             return Err(SpawnError::ShuttingDown);
@@ -415,6 +408,7 @@ impl Spawner {
                 // At max number of threads
             } else {
                 assert!(shared.shutdown_tx.is_some());
+
                 let shutdown_tx = shared.shutdown_tx.clone();
 
                 if let Some(shutdown_tx) = shutdown_tx {
@@ -426,10 +420,7 @@ impl Spawner {
                             shared.worker_thread_index += 1;
                             shared.worker_threads.insert(id, handle);
                         }
-                        Err(ref e)
-                            if is_temporary_os_thread_error(e)
-                                && self.inner.metrics.num_threads() > 0 =>
-                        {
+                        Err(ref e) if is_temporary_os_thread_error(e) && self.inner.metrics.num_threads() > 0 => {
                             // OS temporarily failed to spawn a new thread.
                             // The task will be picked up eventually by a currently
                             // busy thread.
@@ -456,12 +447,10 @@ impl Spawner {
         Ok(())
     }
 
-    fn spawn_thread(
-        &self,
-        shutdown_tx: shutdown::Sender,
-        rt: &Handle,
-        id: usize,
-    ) -> io::Result<thread::JoinHandle<()>> {
+    fn spawn_thread(&self,
+                    shutdown_tx: shutdown::Sender,
+                    rt: &Handle,
+                    id: usize) -> io::Result<thread::JoinHandle<()>> {
         let mut builder = thread::Builder::new().name((self.inner.thread_name)());
 
         if let Some(stack_size) = self.inner.stack_size {
@@ -510,7 +499,8 @@ impl Inner {
         let mut shared = self.shared.lock();
         let mut join_on_thread = None;
 
-        'main: loop {
+        'main:
+        loop {
             // BUSY
             while let Some(task) = shared.queue.pop_front() {
                 self.metrics.dec_queue_depth();
@@ -577,13 +567,9 @@ impl Inner {
         self.metrics.dec_num_threads();
 
         // num_idle should now be tracked exactly, panic
-        // with a descriptive message if it is not the
-        // case.
+        // with a descriptive message if it is not the case
         let prev_idle = self.metrics.dec_num_idle_threads();
-        assert!(
-            prev_idle >= self.metrics.num_idle_threads(),
-            "num_idle_threads underflowed on thread exit"
-        );
+        assert!(prev_idle >= self.metrics.num_idle_threads(), "num_idle_threads underflowed on thread exit");
 
         if shared.shutdown && self.metrics.num_threads() == 0 {
             self.condvar.notify_one();

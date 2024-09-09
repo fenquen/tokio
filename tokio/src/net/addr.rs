@@ -21,10 +21,7 @@ pub trait ToSocketAddrs: sealed::ToSocketAddrsPriv {}
 type ReadyFuture<T> = future::Ready<io::Result<T>>;
 
 cfg_net! {
-    pub(crate) fn to_socket_addrs<T>(arg: T) -> T::Future
-    where
-        T: ToSocketAddrs,
-    {
+    pub(crate) fn to_socket_addrs<T:ToSocketAddrs>(arg: T) -> T::Future {
         arg.to_socket_addrs(sealed::Internal)
     }
 }
@@ -179,9 +176,7 @@ cfg_net! {
             // Run DNS lookup on the blocking pool
             let s = self.to_owned();
 
-            MaybeReady(sealed::State::Blocking(spawn_blocking(move || {
-                std::net::ToSocketAddrs::to_socket_addrs(&s)
-            })))
+            MaybeReady(sealed::State::Blocking(spawn_blocking(move || {std::net::ToSocketAddrs::to_socket_addrs(&s)})))
         }
     }
 
@@ -260,8 +255,8 @@ pub(crate) mod sealed {
 
     #[doc(hidden)]
     pub trait ToSocketAddrsPriv {
-        type Iter: Iterator<Item = SocketAddr> + Send + 'static;
-        type Future: Future<Output = io::Result<Self::Iter>> + Send + 'static;
+        type Iter: Iterator<Item=SocketAddr> + Send + 'static;
+        type Future: Future<Output=io::Result<Self::Iter>> + Send + 'static;
 
         fn to_socket_addrs(&self, internal: Internal) -> Self::Future;
     }
