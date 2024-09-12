@@ -206,15 +206,12 @@ pub(super) enum Stage<T: Future> {
 }
 
 impl<T: Future, S: Schedule> Cell<T, S> {
-    /// Allocates a new task cell, containing the header, trailer, and core
-    /// structures.
+    /// Allocates a new task cell, containing the header, trailer, and core structure
     pub(super) fn new(future: T, scheduler: S, state: State, task_id: Id) -> Box<Cell<T, S>> {
         // Separated into a non-generic function to reduce LLVM codegen
-        fn new_header(
-            state: State,
-            vtable: &'static Vtable,
-            #[cfg(all(tokio_unstable, feature = "tracing"))] tracing_id: Option<tracing::Id>,
-        ) -> Header {
+        fn new_header(state: State,
+                      vtable: &'static Vtable,
+                      #[cfg(all(tokio_unstable, feature = "tracing"))] tracing_id: Option<tracing::Id>) -> Header {
             Header {
                 state,
                 queue_next: UnsafeCell::new(None),
@@ -227,6 +224,7 @@ impl<T: Future, S: Schedule> Cell<T, S> {
 
         #[cfg(all(tokio_unstable, feature = "tracing"))]
         let tracing_id = future.id();
+
         let vtable = raw::vtable::<T, S>();
         let result = Box::new(Cell {
             trailer: Trailer::new(scheduler.hooks()),
@@ -261,6 +259,7 @@ impl<T: Future, S: Schedule> Cell<T, S> {
                 let id_ptr = unsafe { Header::get_id_ptr(NonNull::from(header)) };
                 assert_eq!(id_addr, id_ptr.as_ptr() as usize);
             }
+
             unsafe {
                 check(
                     &result.header,
@@ -409,9 +408,9 @@ impl Header {
     /// # Safety
     ///
     /// The provided raw pointer must point at the header of a task.
-    pub(super) unsafe fn get_trailer(me: NonNull<Header>) -> NonNull<Trailer> {
-        let offset = me.as_ref().vtable.trailer_offset;
-        let trailer = me.as_ptr().cast::<u8>().add(offset).cast::<Trailer>();
+    pub(super) unsafe fn get_trailer(header: NonNull<Header>) -> NonNull<Trailer> {
+        let offset = header.as_ref().vtable.trailer_offset;
+        let trailer = header.as_ptr().cast::<u8>().add(offset).cast::<Trailer>();
         NonNull::new_unchecked(trailer)
     }
 

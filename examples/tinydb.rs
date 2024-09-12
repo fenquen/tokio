@@ -163,7 +163,7 @@ fn handle_request(line: &str, db: &Arc<Database>) -> Response {
             },
             None => Response::Error {
                 msg: format!("no key {}", key),
-            },
+            }
         },
         Request::Set { key, value } => {
             let previous = db.insert(key.clone(), value.clone());

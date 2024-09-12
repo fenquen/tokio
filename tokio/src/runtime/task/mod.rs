@@ -288,20 +288,42 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
 }
 
 cfg_rt! {
-    /// This is the constructor for a new task. Three references to the task are
-    /// created. The first task reference is usually put into an `OwnedTasks`
-    /// immediately. The Notified is sent to the scheduler as an ordinary
-    /// notification.
-    fn new_task<T, S>(task: T,
-        scheduler: S,
-        id: Id,
-    ) -> (Task<S>, Notified<S>, JoinHandle<T::Output>)
+    /// Creates a new task with an associated join handle. This method is used
+    /// only when the task is not going to be stored in an `OwnedTasks` list.
+    ///
+    /// Currently only blocking tasks use this method.
+    pub(crate) fn unowned<T, S>(task: T, scheduler: S, taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>)
+    where
+        S: Schedule,
+        T: Send + Future + 'static,
+        T::Output: Send + 'static,
+    {
+        let (task, notified, join) = new_task(task, scheduler, taskId);
+
+        // This transfers the ref-count of task and notified into an UnownedTask.
+        // This is valid because an UnownedTask holds two ref-counts.
+        let unownedTask = UnownedTask {
+            raw: task.rawTask,
+            _p: PhantomData,
+        };
+
+        mem::forget(task);
+        mem::forget(notified);
+
+        (unownedTask, join)
+    }
+
+     /// This is the constructor for a new task. Three references to the task are
+     /// created. The first task reference is usually put into an `OwnedTasks`
+     /// immediately. The Notified is sent to the scheduler as an ordinary
+     /// notification.
+    fn new_task<T, S>(task: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>)
     where
         S: Schedule,
         T: Future + 'static,
         T::Output: 'static,
     {
-        let rawTask = RawTask::new::<T, S>(task, scheduler, id);
+        let rawTask = RawTask::new::<T, S>(task, scheduler, taskId);
 
         let task = Task {
             rawTask,
@@ -316,31 +338,6 @@ cfg_rt! {
         let join = JoinHandle::new(rawTask);
 
         (task, notified, join)
-    }
-
-    /// Creates a new task with an associated join handle. This method is used
-    /// only when the task is not going to be stored in an `OwnedTasks` list.
-    ///
-    /// Currently only blocking tasks use this method.
-    pub(crate) fn unowned<T, S>(task: T, scheduler: S, id: Id) -> (UnownedTask<S>, JoinHandle<T::Output>)
-    where
-        S: Schedule,
-        T: Send + Future + 'static,
-        T::Output: Send + 'static,
-    {
-        let (task, notified, join) = new_task(task, scheduler, id);
-
-        // This transfers the ref-count of task and notified into an UnownedTask.
-        // This is valid because an UnownedTask holds two ref-counts.
-        let unownedTask = UnownedTask {
-            raw: task.rawTask,
-            _p: PhantomData,
-        };
-
-        mem::forget(task);
-        mem::forget(notified);
-
-        (unownedTask, join)
     }
 }
 

@@ -110,7 +110,13 @@ cfg_rt! {
         }
 
         pub(crate) fn blocking_spawner(&self) -> &blocking::Spawner {
-            match_flavor!(self, Handle(h) => &h.blocking_spawner)
+            match self {
+                Handle::CurrentThread(h) => &h.blocking_spawner,
+                #[cfg(feature = "rt-multi-thread")]
+                Handle::MultiThread(h) => &h.blocking_spawner,
+                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
+                Handle::MultiThreadAlt(h) => (&h. blocking_spawner),
+            }
         }
 
         pub(crate) fn spawn<F>(&self, future: F, id: Id) -> JoinHandle<F::Output>

@@ -8,7 +8,7 @@ use std::task::{Poll, Waker};
 /// Raw task handle
 #[derive(Clone)]
 pub(crate) struct RawTask {
-    ptr: NonNull<Header>,
+    headerPtr: NonNull<Header>,
 }
 
 pub(super) struct Vtable {
@@ -65,49 +65,44 @@ pub(super) fn vtable<T: Future, S: Schedule>() -> &'static Vtable {
 /// See this thread for more info:
 /// <https://users.rust-lang.org/t/custom-vtables-with-integers/78508>
 struct OffsetHelper<T, S>(T, S);
+
 impl<T: Future, S: Schedule> OffsetHelper<T, S> {
     // Pass `size_of`/`align_of` as arguments rather than calling them directly
     // inside `get_trailer_offset` because trait bounds on generic parameters
     // of const fn are unstable on our MSRV.
     const TRAILER_OFFSET: usize = get_trailer_offset(
-        std::mem::size_of::<Header>(),
-        std::mem::size_of::<Core<T, S>>(),
-        std::mem::align_of::<Core<T, S>>(),
-        std::mem::align_of::<Trailer>(),
+        size_of::<Header>(),
+        align_of::<Core<T, S>>(),
+        size_of::<Core<T, S>>(),
+        align_of::<Trailer>(),
     );
 
-    // The `scheduler` is the first field of `Core`, so it has the same
-    // offset as `Core`.
-    const SCHEDULER_OFFSET: usize = get_core_offset(
-        std::mem::size_of::<Header>(),
-        std::mem::align_of::<Core<T, S>>(),
-    );
+    // scheduler是core里的, the first field of `Core`, so it has the same offset as `Core`.
+    const SCHEDULER_OFFSET: usize = get_core_offset(size_of::<Header>(), align_of::<Core<T, S>>());
 
     const ID_OFFSET: usize = get_id_offset(
-        std::mem::size_of::<Header>(),
-        std::mem::align_of::<Core<T, S>>(),
-        std::mem::size_of::<S>(),
-        std::mem::align_of::<Id>(),
+        size_of::<Header>(),
+        align_of::<Core<T, S>>(),
+        size_of::<S>(),
+        align_of::<Id>(),
     );
 }
 
-/// Compute the offset of the `Trailer` field in `Cell<T, S>` using the
-/// `#[repr(C)]` algorithm.
+/// Compute the offset of the `Trailer` field in `Cell<T, S>` using the `#[repr(C)]` algorithm.
 ///
 /// Pseudo-code for the `#[repr(C)]` algorithm can be found here:
 /// <https://doc.rust-lang.org/reference/type-layout.html#reprc-structs>
-const fn get_trailer_offset(
-    header_size: usize,
-    core_size: usize,
-    core_align: usize,
-    trailer_align: usize,
-) -> usize {
+const fn get_trailer_offset(header_size: usize,
+                            core_align: usize,
+                            core_size: usize,
+                            trailer_align: usize) -> usize {
     let mut offset = header_size;
 
-    let core_misalign = offset % core_align;
-    if core_misalign > 0 {
-        offset += core_align - core_misalign;
+    let core_misalignment = offset % core_align;
+    if core_misalignment > 0 {
+        offset += core_align - core_misalignment;
     }
+
     offset += core_size;
 
     let trailer_misalign = offset % trailer_align;
@@ -139,12 +134,10 @@ const fn get_core_offset(header_size: usize, core_align: usize) -> usize {
 ///
 /// Pseudo-code for the `#[repr(C)]` algorithm can be found here:
 /// <https://doc.rust-lang.org/reference/type-layout.html#reprc-structs>
-const fn get_id_offset(
-    header_size: usize,
-    core_align: usize,
-    scheduler_size: usize,
-    id_align: usize,
-) -> usize {
+const fn get_id_offset(header_size: usize,
+                       core_align: usize,
+                       scheduler_size: usize,
+                       id_align: usize) -> usize {
     let mut offset = get_core_offset(header_size, core_align);
     offset += scheduler_size;
 
@@ -157,32 +150,32 @@ const fn get_id_offset(
 }
 
 impl RawTask {
-    pub(super) fn new<T, S>(task: T, scheduler: S, id: Id) -> RawTask
+    pub(super) fn new<T, S>(task: T, scheduler: S, taskId: Id) -> RawTask
     where
         T: Future,
         S: Schedule,
     {
-        let ptr = Box::into_raw(Cell::<_, S>::new(task, scheduler, State::new(), id));
-        let ptr = unsafe { NonNull::new_unchecked(ptr.cast()) };
+        let cellPtr = Box::into_raw(Cell::<_, S>::new(task, scheduler, State::new(), taskId));
+        let headerPtr = unsafe { NonNull::new_unchecked(cellPtr.cast()) };
 
-        RawTask { ptr }
+        RawTask { headerPtr }
     }
 
     pub(super) unsafe fn from_raw(ptr: NonNull<Header>) -> RawTask {
-        RawTask { ptr }
+        RawTask { headerPtr: ptr }
     }
 
     pub(super) fn header_ptr(&self) -> NonNull<Header> {
-        self.ptr
+        self.headerPtr
     }
 
     pub(super) fn trailer_ptr(&self) -> NonNull<Trailer> {
-        unsafe { Header::get_trailer(self.ptr) }
+        unsafe { Header::get_trailer(self.headerPtr) }
     }
 
     /// Returns a reference to the task's header.
     pub(super) fn header(&self) -> &Header {
-        unsafe { self.ptr.as_ref() }
+        unsafe { self.headerPtr.as_ref() }
     }
 
     /// Returns a reference to the task's trailer.
@@ -198,18 +191,18 @@ impl RawTask {
     /// Safety: mutual exclusion is required to call this function.
     pub(crate) fn poll(self) {
         let vtable = self.header().vtable;
-        unsafe { (vtable.poll)(self.ptr) }
+        unsafe { (vtable.poll)(self.headerPtr) }
     }
 
     pub(super) fn schedule(self) {
         let vtable = self.header().vtable;
-        unsafe { (vtable.schedule)(self.ptr) }
+        unsafe { (vtable.schedule)(self.headerPtr) }
     }
 
     pub(super) fn dealloc(self) {
         let vtable = self.header().vtable;
         unsafe {
-            (vtable.dealloc)(self.ptr);
+            (vtable.dealloc)(self.headerPtr);
         }
     }
 
@@ -217,22 +210,22 @@ impl RawTask {
     /// is the future stored by the task.
     pub(super) unsafe fn try_read_output(self, dst: *mut (), waker: &Waker) {
         let vtable = self.header().vtable;
-        (vtable.try_read_output)(self.ptr, dst, waker);
+        (vtable.try_read_output)(self.headerPtr, dst, waker);
     }
 
     pub(super) fn drop_join_handle_slow(self) {
         let vtable = self.header().vtable;
-        unsafe { (vtable.drop_join_handle_slow)(self.ptr) }
+        unsafe { (vtable.drop_join_handle_slow)(self.headerPtr) }
     }
 
     pub(super) fn drop_abort_handle(self) {
         let vtable = self.header().vtable;
-        unsafe { (vtable.drop_abort_handle)(self.ptr) }
+        unsafe { (vtable.drop_abort_handle)(self.headerPtr) }
     }
 
     pub(super) fn shutdown(self) {
         let vtable = self.header().vtable;
-        unsafe { (vtable.shutdown)(self.ptr) }
+        unsafe { (vtable.shutdown)(self.headerPtr) }
     }
 
     /// Increment the task's reference count.
@@ -260,7 +253,7 @@ impl RawTask {
     ///
     /// Safety: make sure only one queue uses this and access is synchronized.
     pub(crate) unsafe fn set_queue_next(self, val: Option<RawTask>) {
-        self.header().set_next(val.map(|task| task.ptr));
+        self.header().set_next(val.map(|task| task.headerPtr));
     }
 }
 
