@@ -511,8 +511,6 @@ impl State {
     }
 }
 
-// ===== impl Snapshot =====
-
 impl Snapshot {
     /// Returns `true` if the task is in an idle state.
     pub(super) fn is_idle(self) -> bool {

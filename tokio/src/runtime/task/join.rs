@@ -7,157 +7,159 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::pin::Pin;
 use std::task::{ready, Context, Poll, Waker};
 
-cfg_rt! {
-    /// An owned permission to join on a task (await its termination).
-    ///
-    /// This can be thought of as the equivalent of [`std::thread::JoinHandle`]
-    /// for a Tokio task rather than a thread. Note that the background task
-    /// associated with this `JoinHandle` started running immediately when you
-    /// called spawn, even if you have not yet awaited the `JoinHandle`.
-    ///
-    /// A `JoinHandle` *detaches* the associated task when it is dropped, which
-    /// means that there is no longer any handle to the task, and no way to `join`
-    /// on it.
-    ///
-    /// This `struct` is created by the [`task::spawn`] and [`task::spawn_blocking`]
-    /// functions.
-    ///
-    /// # Cancel safety
-    ///
-    /// The `&mut JoinHandle<T>` type is cancel safe. If it is used as the event
-    /// in a `tokio::select!` statement and some other branch completes first,
-    /// then it is guaranteed that the output of the task is not lost.
-    ///
-    /// If a `JoinHandle` is dropped, then the task continues running in the
-    /// background and its return value is lost.
-    ///
-    /// # Examples
-    ///
-    /// Creation from [`task::spawn`]:
-    ///
-    /// ```
-    /// use tokio::task;
-    ///
-    /// # async fn doc() {
-    /// let join_handle: task::JoinHandle<_> = task::spawn(async {
-    ///     // some work here
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// Creation from [`task::spawn_blocking`]:
-    ///
-    /// ```
-    /// use tokio::task;
-    ///
-    /// # async fn doc() {
-    /// let join_handle: task::JoinHandle<_> = task::spawn_blocking(|| {
-    ///     // some blocking work here
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// The generic parameter `T` in `JoinHandle<T>` is the return type of the spawned task.
-    /// If the return value is an `i32`, the join handle has type `JoinHandle<i32>`:
-    ///
-    /// ```
-    /// use tokio::task;
-    ///
-    /// # async fn doc() {
-    /// let join_handle: task::JoinHandle<i32> = task::spawn(async {
-    ///     5 + 3
-    /// });
-    /// # }
-    ///
-    /// ```
-    ///
-    /// If the task does not have a return value, the join handle has type `JoinHandle<()>`:
-    ///
-    /// ```
-    /// use tokio::task;
-    ///
-    /// # async fn doc() {
-    /// let join_handle: task::JoinHandle<()> = task::spawn(async {
-    ///     println!("I return nothing.");
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// Note that `handle.await` doesn't give you the return type directly. It is wrapped in a
-    /// `Result` because panics in the spawned task are caught by Tokio. The `?` operator has
-    /// to be double chained to extract the returned value:
-    ///
-    /// ```
-    /// use tokio::task;
-    /// use std::io;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> io::Result<()> {
-    ///     let join_handle: task::JoinHandle<Result<i32, io::Error>> = tokio::spawn(async {
-    ///         Ok(5 + 3)
-    ///     });
-    ///
-    ///     let result = join_handle.await??;
-    ///     assert_eq!(result, 8);
-    ///     Ok(())
-    /// }
-    /// ```
-    ///
-    /// If the task panics, the error is a [`JoinError`] that contains the panic:
-    ///
-    /// ```
-    /// use tokio::task;
-    /// use std::io;
-    /// use std::panic;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> io::Result<()> {
-    ///     let join_handle: task::JoinHandle<Result<i32, io::Error>> = tokio::spawn(async {
-    ///         panic!("boom");
-    ///     });
-    ///
-    ///     let err = join_handle.await.unwrap_err();
-    ///     assert!(err.is_panic());
-    ///     Ok(())
-    /// }
-    ///
-    /// ```
-    /// Child being detached and outliving its parent:
-    ///
-    /// ```no_run
-    /// use tokio::task;
-    /// use tokio::time;
-    /// use std::time::Duration;
-    ///
-    /// # #[tokio::main] async fn main() {
-    /// let original_task = task::spawn(async {
-    ///     let _detached_task = task::spawn(async {
-    ///         // Here we sleep to make sure that the first task returns before.
-    ///         time::sleep(Duration::from_millis(10)).await;
-    ///         // This will be called, even though the JoinHandle is dropped.
-    ///         println!("♫ Still alive ♫");
-    ///     });
-    /// });
-    ///
-    /// original_task.await.expect("The task being joined has panicked");
-    /// println!("Original task is joined.");
-    ///
-    /// // We make sure that the new task has time to run, before the main
-    /// // task returns.
-    ///
-    /// time::sleep(Duration::from_millis(1000)).await;
-    /// # }
-    /// ```
-    ///
-    /// [`task::spawn`]: crate::task::spawn()
-    /// [`task::spawn_blocking`]: crate::task::spawn_blocking
-    /// [`std::thread::JoinHandle`]: std::thread::JoinHandle
-    /// [`JoinError`]: crate::task::JoinError
-    pub struct JoinHandle<T> {
-        raw: RawTask,
-        _p: PhantomData<T>,
-    }
+
+/// An owned permission to join on a task (await its termination).
+///
+/// This can be thought of as the equivalent of [`std::thread::JoinHandle`]
+/// for a Tokio task rather than a thread. Note that the background task
+/// associated with this `JoinHandle` started running immediately when you
+/// called spawn, even if you have not yet awaited the `JoinHandle`.
+///
+/// A `JoinHandle` *detaches* the associated task when it is dropped, which
+/// means that there is no longer any handle to the task, and no way to `join`
+/// on it.
+///
+/// This `struct` is created by the [`task::spawn`] and [`task::spawn_blocking`]
+/// functions.
+///
+/// # Cancel safety
+///
+/// The `&mut JoinHandle<T>` type is cancel safe. If it is used as the event
+/// in a `tokio::select!` statement and some other branch completes first,
+/// then it is guaranteed that the output of the task is not lost.
+///
+/// If a `JoinHandle` is dropped, then the task continues running in the
+/// background and its return value is lost.
+///
+/// # Examples
+///
+/// Creation from [`task::spawn`]:
+///
+/// ```
+/// use tokio::task;
+///
+/// # async fn doc() {
+/// let join_handle: task::JoinHandle<_> = task::spawn(async {
+///     // some work here
+/// });
+/// # }
+/// ```
+///
+/// Creation from [`task::spawn_blocking`]:
+///
+/// ```
+/// use tokio::task;
+///
+/// # async fn doc() {
+/// let join_handle: task::JoinHandle<_> = task::spawn_blocking(|| {
+///     // some blocking work here
+/// });
+/// # }
+/// ```
+///
+/// The generic parameter `T` in `JoinHandle<T>` is the return type of the spawned task.
+/// If the return value is an `i32`, the join handle has type `JoinHandle<i32>`:
+///
+/// ```
+/// use tokio::task;
+///
+/// # async fn doc() {
+/// let join_handle: task::JoinHandle<i32> = task::spawn(async {
+///     5 + 3
+/// });
+/// # }
+///
+/// ```
+///
+/// If the task does not have a return value, the join handle has type `JoinHandle<()>`:
+///
+/// ```
+/// use tokio::task;
+///
+/// # async fn doc() {
+/// let join_handle: task::JoinHandle<()> = task::spawn(async {
+///     println!("I return nothing.");
+/// });
+/// # }
+/// ```
+///
+/// Note that `handle.await` doesn't give you the return type directly. It is wrapped in a
+/// `Result` because panics in the spawned task are caught by Tokio. The `?` operator has
+/// to be double chained to extract the returned value:
+///
+/// ```
+/// use tokio::task;
+/// use std::io;
+///
+/// #[tokio::main]
+/// async fn main() -> io::Result<()> {
+///     let join_handle: task::JoinHandle<Result<i32, io::Error>> = tokio::spawn(async {
+///         Ok(5 + 3)
+///     });
+///
+///     let result = join_handle.await??;
+///     assert_eq!(result, 8);
+///     Ok(())
+/// }
+/// ```
+///
+/// If the task panics, the error is a [`JoinError`] that contains the panic:
+///
+/// ```
+/// use tokio::task;
+/// use std::io;
+/// use std::panic;
+///
+/// #[tokio::main]
+/// async fn main() -> io::Result<()> {
+///     let join_handle: task::JoinHandle<Result<i32, io::Error>> = tokio::spawn(async {
+///         panic!("boom");
+///     });
+///
+///     let err = join_handle.await.unwrap_err();
+///     assert!(err.is_panic());
+///     Ok(())
+/// }
+///
+/// ```
+/// Child being detached and outliving its parent:
+///
+/// ```no_run
+/// use tokio::task;
+/// use tokio::time;
+/// use std::time::Duration;
+///
+/// # #[tokio::main] async fn main() {
+/// let original_task = task::spawn(async {
+///     let _detached_task = task::spawn(async {
+///         // Here we sleep to make sure that the first task returns before.
+///         time::sleep(Duration::from_millis(10)).await;
+///         // This will be called, even though the JoinHandle is dropped.
+///         println!("♫ Still alive ♫");
+///     });
+/// });
+///
+/// original_task.await.expect("The task being joined has panicked");
+/// println!("Original task is joined.");
+///
+/// // We make sure that the new task has time to run, before the main
+/// // task returns.
+///
+/// time::sleep(Duration::from_millis(1000)).await;
+/// # }
+/// ```
+///
+/// [`task::spawn`]: crate::task::spawn()
+/// [`task::spawn_blocking`]: crate::task::spawn_blocking
+/// [`std::thread::JoinHandle`]: std::thread::JoinHandle
+/// [`JoinError`]: crate::task::JoinError
+#[cfg(feature = "rt")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
+pub struct JoinHandle<T> {
+    rawTask: RawTask,
+    _p: PhantomData<T>,
 }
+
 
 unsafe impl<T: Send> Send for JoinHandle<T> {}
 unsafe impl<T: Send> Sync for JoinHandle<T> {}
@@ -166,9 +168,9 @@ impl<T> UnwindSafe for JoinHandle<T> {}
 impl<T> RefUnwindSafe for JoinHandle<T> {}
 
 impl<T> JoinHandle<T> {
-    pub(super) fn new(raw: RawTask) -> JoinHandle<T> {
+    pub(super) fn new(rawTask: RawTask) -> JoinHandle<T> {
         JoinHandle {
-            raw,
+            rawTask,
             _p: PhantomData,
         }
     }
@@ -218,7 +220,7 @@ impl<T> JoinHandle<T> {
     /// [the module level docs]: crate::task#cancellation
     /// [`spawn_blocking`]: crate::task::spawn_blocking
     pub fn abort(&self) {
-        self.raw.remote_abort();
+        self.rawTask.remote_abort();
     }
 
     /// Checks if the task associated with this `JoinHandle` has finished.
@@ -249,13 +251,13 @@ impl<T> JoinHandle<T> {
     /// ```
     /// [`abort`]: method@JoinHandle::abort
     pub fn is_finished(&self) -> bool {
-        let state = self.raw.header().state.load();
+        let state = self.rawTask.header().state.load();
         state.is_complete()
     }
 
     /// Set the waker that is notified when the task completes.
     pub(crate) fn set_join_waker(&mut self, waker: &Waker) {
-        if self.raw.try_set_join_waker(waker) {
+        if self.rawTask.try_set_join_waker(waker) {
             // In this case the task has already completed. We wake the waker immediately.
             waker.wake_by_ref();
         }
@@ -298,8 +300,8 @@ impl<T> JoinHandle<T> {
     /// [cancelled]: method@super::error::JoinError::is_cancelled
     #[must_use = "abort handles do nothing unless `.abort` is called"]
     pub fn abort_handle(&self) -> super::AbortHandle {
-        self.raw.ref_inc();
-        super::AbortHandle::new(self.raw)
+        self.rawTask.ref_inc();
+        super::AbortHandle::new(self.rawTask)
     }
 
     /// Returns a [task ID] that uniquely identifies this task relative to other
@@ -315,7 +317,7 @@ impl<T> JoinHandle<T> {
     #[cfg_attr(docsrs, doc(cfg(tokio_unstable)))]
     pub fn id(&self) -> super::Id {
         // Safety: The header pointer is valid.
-        unsafe { Header::get_id(self.raw.header_ptr()) }
+        unsafe { Header::get_id(self.rawTask.header_ptr()) }
     }
 }
 
@@ -343,7 +345,7 @@ impl<T> Future for JoinHandle<T> {
         //
         // The type of `T` must match the task's output type.
         unsafe {
-            self.raw.try_read_output(&mut ret as *mut _ as *mut (), cx.waker());
+            self.rawTask.try_read_output(&mut ret as *mut _ as *mut (), cx.waker());
         }
 
         if ret.is_ready() {
@@ -356,11 +358,11 @@ impl<T> Future for JoinHandle<T> {
 
 impl<T> Drop for JoinHandle<T> {
     fn drop(&mut self) {
-        if self.raw.state().drop_join_handle_fast().is_ok() {
+        if self.rawTask.state().drop_join_handle_fast().is_ok() {
             return;
         }
 
-        self.raw.drop_join_handle_slow();
+        self.rawTask.drop_join_handle_slow();
     }
 }
 
@@ -370,7 +372,7 @@ where
 {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Safety: The header pointer is valid.
-        let id_ptr = unsafe { Header::get_id_ptr(self.raw.header_ptr()) };
+        let id_ptr = unsafe { Header::get_id_ptr(self.rawTask.header_ptr()) };
         let id = unsafe { id_ptr.as_ref() };
         fmt.debug_struct("JoinHandle").field("id", id).finish()
     }

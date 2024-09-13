@@ -245,7 +245,7 @@ pub(crate) struct LocalNotified<S: 'static> {
 /// A task that is not owned by any `OwnedTasks`. Used for blocking tasks.
 /// This type holds two ref-counts.
 pub(crate) struct UnownedTask<S: 'static> {
-    raw: RawTask,
+    rawTask: RawTask,
     _p: PhantomData<S>,
 }
 
@@ -287,59 +287,63 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
     }
 }
 
-cfg_rt! {
-    /// Creates a new task with an associated join handle. This method is used
-    /// only when the task is not going to be stored in an `OwnedTasks` list.
-    ///
-    /// Currently only blocking tasks use this method.
-    pub(crate) fn unowned<T, S>(task: T, scheduler: S, taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>)
-    where
-        S: Schedule,
-        T: Send + Future + 'static,
-        T::Output: Send + 'static,
-    {
-        let (task, notified, join) = new_task(task, scheduler, taskId);
 
-        // This transfers the ref-count of task and notified into an UnownedTask.
-        // This is valid because an UnownedTask holds two ref-counts.
-        let unownedTask = UnownedTask {
-            raw: task.rawTask,
-            _p: PhantomData,
-        };
+/// Creates a new task with an associated join handle. This method is used
+/// only when the task is not going to be stored in an `OwnedTasks` list.
+///
+/// Currently only blocking tasks use this method.
+#[cfg(feature = "rt")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
+pub(crate) fn unowned<T, S>(task: T, scheduler: S, taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>)
+where
+    S: Schedule,
+    T: Send + Future + 'static,
+    T::Output: Send + 'static,
+{
+    let (task, notified, join) = new_task(task, scheduler, taskId);
 
-        mem::forget(task);
-        mem::forget(notified);
+    // This transfers the ref-count of (task and notified) into an UnownedTask.
+    // This is valid because an UnownedTask holds two ref-counts.
+    let unownedTask = UnownedTask {
+        rawTask: task.rawTask,
+        _p: PhantomData,
+    };
 
-        (unownedTask, join)
-    }
+    mem::forget(task);
+    mem::forget(notified);
 
-     /// This is the constructor for a new task. Three references to the task are
-     /// created. The first task reference is usually put into an `OwnedTasks`
-     /// immediately. The Notified is sent to the scheduler as an ordinary
-     /// notification.
-    fn new_task<T, S>(task: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>)
-    where
-        S: Schedule,
-        T: Future + 'static,
-        T::Output: 'static,
-    {
-        let rawTask = RawTask::new::<T, S>(task, scheduler, taskId);
-
-        let task = Task {
-            rawTask,
-            _p: PhantomData,
-        };
-
-        let notified = Notified(Task {
-            rawTask,
-            _p: PhantomData,
-        });
-
-        let join = JoinHandle::new(rawTask);
-
-        (task, notified, join)
-    }
+    (unownedTask, join)
 }
+
+/// This is the constructor for a new task. Three references to the task are
+/// created. The first task reference is usually put into an `OwnedTasks`
+/// immediately. The Notified is sent to the scheduler as an ordinary
+/// notification.
+#[cfg(feature = "rt")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
+fn new_task<T, S>(task: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>)
+where
+    S: Schedule,
+    T: Future + 'static,
+    T::Output: 'static,
+{
+    let rawTask = RawTask::new::<T, S>(task, scheduler, taskId);
+
+    let task = Task {
+        rawTask,
+        _p: PhantomData,
+    };
+
+    let notified = Notified(Task {
+        rawTask,
+        _p: PhantomData,
+    });
+
+    let join = JoinHandle::new(rawTask);
+
+    (task, notified, join)
+}
+
 
 impl<S: 'static> Task<S> {
     unsafe fn new(raw: RawTask) -> Task<S> {
@@ -403,15 +407,11 @@ impl<S: 'static> Notified<S> {
     fn header(&self) -> &Header {
         self.0.header()
     }
-}
 
-impl<S: 'static> Notified<S> {
-    pub(crate) unsafe fn from_raw(ptr: RawTask) -> Notified<S> {
-        Notified(Task::new(ptr))
+    pub(crate) unsafe fn from_raw(rawTask: RawTask) -> Notified<S> {
+        Notified(Task::new(rawTask))
     }
-}
 
-impl<S: 'static> Notified<S> {
     pub(crate) fn into_raw(self) -> RawTask {
         let raw = self.0.rawTask;
         mem::forget(self);
@@ -448,7 +448,7 @@ impl<S: Schedule> UnownedTask<S> {
     fn into_task(self) -> Task<S> {
         // Convert into a task.
         let task = Task {
-            rawTask: self.raw,
+            rawTask: self.rawTask,
             _p: PhantomData,
         };
         mem::forget(self);
@@ -460,7 +460,7 @@ impl<S: Schedule> UnownedTask<S> {
     }
 
     pub(crate) fn run(self) {
-        let raw = self.raw;
+        let raw = self.rawTask;
         mem::forget(self);
 
         // Transfer one ref-count to a Task object.
@@ -493,9 +493,9 @@ impl<S: 'static> Drop for Task<S> {
 impl<S: 'static> Drop for UnownedTask<S> {
     fn drop(&mut self) {
         // Decrement the ref count
-        if self.raw.header().state.ref_dec_twice() {
+        if self.rawTask.header().state.ref_dec_twice() {
             // Deallocate if this is the final ref count
-            self.raw.dealloc();
+            self.rawTask.dealloc();
         }
     }
 }
