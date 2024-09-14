@@ -36,15 +36,6 @@ pub(crate) enum Handle {
 
     #[cfg(feature = "rt-multi-thread")]
     MultiThread(Arc<multi_thread::Handle>),
-
-    #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-    MultiThreadAlt(Arc<multi_thread_alt::Handle>),
-
-    // TODO: This is to avoid triggering "dead code" warnings many other places
-    // in the codebase. Remove this during a later cleanup
-    #[cfg(not(feature = "rt"))]
-    #[allow(dead_code)]
-    Disabled,
 }
 
 #[cfg(feature = "rt")]
@@ -126,12 +117,8 @@ cfg_rt! {
         {
             match self {
                 Handle::CurrentThread(h) => current_thread::Handle::spawn(h, future, id),
-
                 #[cfg(feature = "rt-multi-thread")]
                 Handle::MultiThread(h) => multi_thread::Handle::spawn(h, future, id),
-
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                Handle::MultiThreadAlt(h) => multi_thread_alt::Handle::spawn(h, future, id),
             }
         }
 

@@ -68,10 +68,10 @@
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create the runtime
-//!     let rt  = Runtime::new()?;
+//!     let runtime  = Runtime::new()?;
 //!
 //!     // Spawn the root task
-//!     rt.block_on(async {
+//!     runtime.block_on(async {
 //!         let listener = TcpListener::bind("127.0.0.1:8080").await?;
 //!
 //!         loop {
@@ -392,8 +392,7 @@ cfg_rt! {
     mod runtime;
     pub use runtime::{Runtime, RuntimeFlavor};
 
-    /// Boundary value to prevent stack overflow caused by a large-sized
-    /// Future being placed in the stack.
+    /// Boundary value to prevent stack overflow caused by a large-sized Future being placed in the stack.
     pub(crate) const BOX_FUTURE_THRESHOLD: usize = 2048;
 
     mod thread_id;

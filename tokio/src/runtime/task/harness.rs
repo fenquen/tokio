@@ -22,9 +22,9 @@ where
     T: Future,
     S: 'static,
 {
-    pub(super) unsafe fn from_raw(ptr: NonNull<Header>) -> Harness<T, S> {
+    pub(super) unsafe fn from_raw(headerPtr: NonNull<Header>) -> Harness<T, S> {
         Harness {
-            cell: ptr.cast::<Cell<T, S>>(),
+            cell: headerPtr.cast::<Cell<T, S>>(),
         }
     }
 
@@ -155,9 +155,7 @@ where
             PollFuture::Notified => {
                 // The `poll_inner` call has given us two ref-counts back.
                 // We give one of them to a new task and call `yield_now`.
-                self.core()
-                    .scheduler
-                    .yield_now(Notified(self.get_new_task()));
+                self.core().scheduler.yield_now(Notified(self.get_new_task()));
 
                 // The remaining ref-count is now dropped. We kept the extra
                 // ref-count until now to ensure that even if the `yield_now`
@@ -165,12 +163,8 @@ where
                 // before after `yield_now` returns.
                 self.drop_reference();
             }
-            PollFuture::Complete => {
-                self.complete();
-            }
-            PollFuture::Dealloc => {
-                self.dealloc();
-            }
+            PollFuture::Complete => self.complete(),
+            PollFuture::Dealloc => self.dealloc(),
             PollFuture::Done => (),
         }
     }
@@ -194,6 +188,21 @@ where
 
         match self.state().transition_to_running() {
             TransitionToRunning::Success => {
+                let header_ptr = self.header_ptr();
+                let wakerRef = waker_ref::<S>(&header_ptr);
+                let context = Context::from_waker(&wakerRef);
+
+                if poll_future(self.core(), context) == Poll::Ready(()) {
+                    // The future completed. Move on to complete the task.
+                    return PollFuture::Complete;
+                }
+
+                let transition_res = self.state().transition_to_idle();
+                if let TransitionToIdle::Cancelled = transition_res {
+                    // The transition to idle failed because the task was cancelled during the poll.
+                    cancel_task(self.core());
+                }
+
                 // Separated to reduce LLVM codegen
                 fn transition_result_to_poll_future(result: TransitionToIdle) -> PollFuture {
                     match result {
@@ -203,22 +212,7 @@ where
                         TransitionToIdle::Cancelled => PollFuture::Complete,
                     }
                 }
-                let header_ptr = self.header_ptr();
-                let waker_ref = waker_ref::<S>(&header_ptr);
-                let cx = Context::from_waker(&waker_ref);
-                let res = poll_future(self.core(), cx);
 
-                if res == Poll::Ready(()) {
-                    // The future completed. Move on to complete the task.
-                    return PollFuture::Complete;
-                }
-
-                let transition_res = self.state().transition_to_idle();
-                if let TransitionToIdle::Cancelled = transition_res {
-                    // The transition to idle failed because the task was
-                    // cancelled during the poll.
-                    cancel_task(self.core());
-                }
                 transition_result_to_poll_future(transition_res)
             }
             TransitionToRunning::Cancelled => {
@@ -254,7 +248,7 @@ where
         // because we are going to drop them. This only matters when running
         // under loom.
         self.trailer().waker.with_mut(|_| ());
-        self.core().stage.with_mut(|_| ());
+        self.core().coreStage.with_mut(|_| ());
 
         // Safety: The caller of this method just transitioned our ref-count to
         // zero, so it is our responsibility to release the allocation.
@@ -468,7 +462,7 @@ fn cancel_task<T: Future, S: Schedule>(core: &Core<T, S>) {
         core.drop_future_or_output();
     }));
 
-    core.store_output(Err(panic_result_to_join_error(core.task_id, res)));
+    core.store_output(Err(panic_result_to_join_error(core.taskId, res)));
 }
 
 fn panic_result_to_join_error(
@@ -481,24 +475,27 @@ fn panic_result_to_join_error(
     }
 }
 
-/// Polls the future. If the future completes, the output is written to the
-/// stage field.
+/// Polls the future. If the future completes, the output is written to the stage field.
 fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Poll<()> {
     // Poll the future.
     let output = panic::catch_unwind(panic::AssertUnwindSafe(|| {
         struct Guard<'a, T: Future, S: Schedule> {
             core: &'a Core<T, S>,
         }
+
         impl<'a, T: Future, S: Schedule> Drop for Guard<'a, T, S> {
             fn drop(&mut self) {
-                // If the future panics on poll, we drop it inside the panic
-                // guard.
+                // If the future panics on poll, we drop it inside the panic guard.
                 self.core.drop_future_or_output();
             }
         }
+
         let guard = Guard { core };
+
         let res = guard.core.poll(cx);
+
         mem::forget(guard);
+
         res
     }));
 
@@ -506,7 +503,7 @@ fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Po
     let output = match output {
         Ok(Poll::Pending) => return Poll::Pending,
         Ok(Poll::Ready(output)) => Ok(output),
-        Err(panic) => Err(panic_to_error(&core.scheduler, core.task_id, panic)),
+        Err(panic) => Err(panic_to_error(&core.scheduler, core.taskId, panic)),
     };
 
     // Catch and ignore panics if the future panics on drop.

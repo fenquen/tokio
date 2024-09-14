@@ -139,10 +139,10 @@ pub(super) struct Core<T: Future, S> {
     pub(super) scheduler: S,
 
     /// The task's ID, used for populating `JoinError`s.
-    pub(super) task_id: Id,
+    pub(super) taskId: Id,
 
     /// Either the future or the output.
-    pub(super) stage: CoreStage<T>,
+    pub(super) coreStage: CoreStage<T>,
 }
 
 /// Crate public as this is also needed by the pool.
@@ -236,10 +236,10 @@ impl<T: Future, S: Schedule> Cell<T, S> {
             ),
             core: Core {
                 scheduler,
-                stage: CoreStage {
+                coreStage: CoreStage {
                     stage: UnsafeCell::new(Stage::Running(future)),
                 },
-                task_id,
+                taskId: task_id,
             },
         });
 
@@ -265,7 +265,7 @@ impl<T: Future, S: Schedule> Cell<T, S> {
                     &result.header,
                     &result.trailer,
                     &result.core.scheduler,
-                    &result.core.task_id,
+                    &result.core.taskId,
                 );
             }
         }
@@ -312,11 +312,10 @@ impl<T: Future, S: Schedule> Core<T, S> {
     /// The mutual exclusion is implemented by `Harness` and the `Lifecycle`
     /// component of the task state.
     ///
-    /// `self` must also be pinned. This is handled by storing the task on the
-    /// heap.
-    pub(super) fn poll(&self, mut cx: Context<'_>) -> Poll<T::Output> {
+    /// `self` must also be pinned. This is handled by storing the task on the  heap.
+    pub(super) fn poll(&self, mut context: Context<'_>) -> Poll<T::Output> {
         let res = {
-            self.stage.stage.with_mut(|ptr| {
+            self.coreStage.stage.with_mut(|ptr| {
                 // Safety: The caller ensures mutual exclusion to the field.
                 let future = match unsafe { &mut *ptr } {
                     Stage::Running(future) => future,
@@ -326,8 +325,8 @@ impl<T: Future, S: Schedule> Core<T, S> {
                 // Safety: The caller ensures the future is pinned.
                 let future = unsafe { Pin::new_unchecked(future) };
 
-                let _guard = TaskIdGuard::enter(self.task_id);
-                future.poll(&mut cx)
+                let _guard = TaskIdGuard::enter(self.taskId);
+                future.poll(&mut context)
             })
         };
 
@@ -370,7 +369,7 @@ impl<T: Future, S: Schedule> Core<T, S> {
     pub(super) fn take_output(&self) -> super::Result<T::Output> {
         use std::mem;
 
-        self.stage.stage.with_mut(|ptr| {
+        self.coreStage.stage.with_mut(|ptr| {
             // Safety:: the caller ensures mutual exclusion to the field.
             match mem::replace(unsafe { &mut *ptr }, Stage::Consumed) {
                 Stage::Finished(output) => output,
@@ -380,8 +379,8 @@ impl<T: Future, S: Schedule> Core<T, S> {
     }
 
     unsafe fn set_stage(&self, stage: Stage<T>) {
-        let _guard = TaskIdGuard::enter(self.task_id);
-        self.stage.stage.with_mut(|ptr| *ptr = stage);
+        let _guard = TaskIdGuard::enter(self.taskId);
+        self.coreStage.stage.with_mut(|ptr| *ptr = stage);
     }
 }
 

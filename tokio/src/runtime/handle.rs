@@ -196,8 +196,7 @@ impl Handle {
         }
     }
 
-    /// Runs the provided function on an executor dedicated to blocking
-    /// operations.
+    /// Runs the provided function on an executor dedicated to blocking operations.
     ///
     /// # Examples
     ///

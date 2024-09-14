@@ -38,7 +38,7 @@ impl Handle {
     /// Spawns a future onto the thread pool
     pub(crate) fn spawn<F>(me: &Arc<Self>, future: F, id: task::Id) -> JoinHandle<F::Output>
     where
-        F: crate::future::Future + Send + 'static,
+        F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
         Self::bind_new_task(me, future, id)
@@ -56,8 +56,6 @@ impl Handle {
         let (handle, notified) = me.shared.owned.bind(future, me.clone(), id);
 
         me.task_hooks.spawn(&TaskMeta {
-            #[cfg(tokio_unstable)]
-            id,
             _phantom: Default::default(),
         });
 

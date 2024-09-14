@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "net"), allow(dead_code))]
 
 use crate::io::interest::Interest;
-use crate::runtime::io::{Direction, Handle, ReadyEvent, ScheduledIo};
+use crate::runtime::io::{Direction, IODriverHandle, ReadyEvent, ScheduledIo};
 use crate::runtime::scheduler;
 
 use mio::event::Source;
@@ -233,7 +233,7 @@ impl Registration {
         }
     }
 
-    fn handle(&self) -> &Handle {
+    fn handle(&self) -> &IODriverHandle {
         self.handle.driver().io()
     }
 }

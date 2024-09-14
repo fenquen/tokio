@@ -167,8 +167,7 @@ cfg_rt! {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        // preventing stack overflows on debug mode, by quickly sending the
-        // task to the heap.
+        // preventing stack overflows on debug mode, by quickly sending the task to the heap.
         if cfg!(debug_assertions) && std::mem::size_of::<F>() > BOX_FUTURE_THRESHOLD {
             spawn_inner(Box::pin(future), None)
         } else {
@@ -184,18 +183,6 @@ cfg_rt! {
     {
         use crate::runtime::{context, task};
 
-        #[cfg(all(
-            tokio_unstable,
-            tokio_taskdump,
-            feature = "rt",
-            target_os = "linux",
-            any(
-                target_arch = "aarch64",
-                target_arch = "x86",
-                target_arch = "x86_64"
-            )
-        ))]
-        let future = task::trace::Trace::root(future);
         let id = task::Id::next();
         let task = crate::util::trace::task(future, "task", name, id.as_u64());
 

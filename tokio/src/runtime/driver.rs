@@ -34,23 +34,22 @@ pub(crate) struct Handle {
     pub(crate) clock: Clock,
 }
 
-pub(crate) struct Cfg {
+pub(crate) struct DriverConfig {
     pub(crate) enable_io: bool,
     pub(crate) enable_time: bool,
     pub(crate) enable_pause_time: bool,
     pub(crate) start_paused: bool,
     pub(crate) nevents: usize,
-    pub(crate) workers: usize,
+    pub(crate) workerThreadCount: usize,
 }
 
 impl Driver {
-    pub(crate) fn new(cfg: Cfg) -> io::Result<(Self, Handle)> {
-        let (io_stack, io_handle, signal_handle) = create_io_stack(cfg.enable_io, cfg.nevents)?;
+    pub(crate) fn new(driverConfig: DriverConfig) -> io::Result<(Self, Handle)> {
+        let (io_stack, io_handle, signal_handle) = create_io_stack(driverConfig.enable_io, driverConfig.nevents)?;
 
-        let clock = create_clock(cfg.enable_pause_time, cfg.start_paused);
+        let clock = create_clock(driverConfig.enable_pause_time, driverConfig.start_paused);
 
-        let (time_driver, time_handle) =
-            create_time_driver(cfg.enable_time, io_stack, &clock, cfg.workers);
+        let (time_driver, time_handle) = create_time_driver(driverConfig.enable_time, io_stack, &clock, driverConfig.workerThreadCount);
 
         Ok((
             Self { inner: time_driver },
@@ -92,7 +91,7 @@ impl Handle {
 
     cfg_io_driver! {
         #[track_caller]
-        pub(crate) fn io(&self) -> &crate::runtime::io::Handle {
+        pub(crate) fn io(&self) -> &crate::runtime::io::IODriverHandle {
             self.io
                 .as_ref()
                 .expect("A Tokio 1.x context was found, but IO is disabled. Call `enable_io` on the runtime builder to enable IO.")
@@ -125,89 +124,107 @@ impl Handle {
     }
 }
 
-// ===== io driver =====
+#[cfg(any(
+    feature = "net",
+    all(unix, feature = "process"),
+    all(unix, feature = "signal"),
+))]
+#[cfg_attr(docsrs, doc(cfg(any(
+    feature = "net",
+    all(unix, feature = "process"),
+    all(unix, feature = "signal"),
+))))]
+pub(crate) type IoDriver = crate::runtime::io::IODriver;
 
-cfg_io_driver! {
-    pub(crate) type IoDriver = crate::runtime::io::Driver;
+#[cfg(any(
+    feature = "net",
+    all(unix, feature = "process"),
+    all(unix, feature = "signal"),
+))]
+#[cfg_attr(docsrs, doc(cfg(any(
+    feature = "net",
+    all(unix, feature = "process"),
+    all(unix, feature = "signal"),
+))))]
+#[derive(Debug)]
+pub(crate) enum IoStack {
+    Enabled(ProcessDriver),
+    Disabled(ParkThread),
+}
 
-    #[derive(Debug)]
-    pub(crate) enum IoStack {
-        Enabled(ProcessDriver),
-        Disabled(ParkThread),
-    }
+#[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal")))]
+#[derive(Debug)]
+pub(crate) enum IoHandle {
+    Enabled(crate::runtime::io::IODriverHandle),
+    Disabled(UnparkThread),
+}
 
-    #[derive(Debug)]
-    pub(crate) enum IoHandle {
-        Enabled(crate::runtime::io::Handle),
-        Disabled(UnparkThread),
-    }
+#[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal")))]
+fn create_io_stack(enableIO: bool, eventCount: usize) -> io::Result<(IoStack, IoHandle, SignalHandle)> {
+    let ret = if enableIO {
+        let (io_driver, io_handle) = crate::runtime::io::IODriver::new(eventCount)?;
 
-    fn create_io_stack(enabled: bool, nevents: usize) -> io::Result<(IoStack, IoHandle, SignalHandle)> {
-        #[cfg(loom)]
-        assert!(!enabled);
+        let (signal_driver, signal_handle) = create_signal_driver(io_driver, &io_handle)?;
+        let process_driver = create_process_driver(signal_driver);
 
-        let ret = if enabled {
-            let (io_driver, io_handle) = crate::runtime::io::Driver::new(nevents)?;
+        (IoStack::Enabled(process_driver), IoHandle::Enabled(io_handle), signal_handle)
+    } else {
+        let park_thread = ParkThread::new();
+        let unpark_thread = park_thread.unpark();
+        (IoStack::Disabled(park_thread), IoHandle::Disabled(unpark_thread), Default::default())
+    };
 
-            let (signal_driver, signal_handle) = create_signal_driver(io_driver, &io_handle)?;
-            let process_driver = create_process_driver(signal_driver);
+    Ok(ret)
+}
 
-            (IoStack::Enabled(process_driver), IoHandle::Enabled(io_handle), signal_handle)
-        } else {
-            let park_thread = ParkThread::new();
-            let unpark_thread = park_thread.unpark();
-            (IoStack::Disabled(park_thread), IoHandle::Disabled(unpark_thread), Default::default())
-        };
-
-        Ok(ret)
-    }
-
-    impl IoStack {
-        pub(crate) fn is_enabled(&self) -> bool {
-            match self {
-                IoStack::Enabled(..) => true,
-                IoStack::Disabled(..) => false,
-            }
-        }
-
-        pub(crate) fn park(&mut self, handle: &Handle) {
-            match self {
-                IoStack::Enabled(v) => v.park(handle),
-                IoStack::Disabled(v) => v.park(),
-            }
-        }
-
-        pub(crate) fn park_timeout(&mut self, handle: &Handle, duration: Duration) {
-            match self {
-                IoStack::Enabled(v) => v.park_timeout(handle, duration),
-                IoStack::Disabled(v) => v.park_timeout(duration),
-            }
-        }
-
-        pub(crate) fn shutdown(&mut self, handle: &Handle) {
-            match self {
-                IoStack::Enabled(v) => v.shutdown(handle),
-                IoStack::Disabled(v) => v.shutdown(),
-            }
+#[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal")))]
+impl IoStack {
+    pub(crate) fn is_enabled(&self) -> bool {
+        match self {
+            IoStack::Enabled(..) => true,
+            IoStack::Disabled(..) => false,
         }
     }
 
-    impl IoHandle {
-        pub(crate) fn unpark(&self) {
-            match self {
-                IoHandle::Enabled(handle) => handle.unpark(),
-                IoHandle::Disabled(handle) => handle.unpark(),
-            }
+    pub(crate) fn park(&mut self, handle: &Handle) {
+        match self {
+            IoStack::Enabled(v) => v.park(handle),
+            IoStack::Disabled(v) => v.park(),
         }
+    }
 
-        pub(crate) fn as_ref(&self) -> Option<&crate::runtime::io::Handle> {
-            match self {
-                IoHandle::Enabled(v) => Some(v),
-                IoHandle::Disabled(..) => None,
-            }
+    pub(crate) fn park_timeout(&mut self, handle: &Handle, duration: Duration) {
+        match self {
+            IoStack::Enabled(v) => v.park_timeout(handle, duration),
+            IoStack::Disabled(v) => v.park_timeout(duration),
+        }
+    }
+
+    pub(crate) fn shutdown(&mut self, handle: &Handle) {
+        match self {
+            IoStack::Enabled(v) => v.shutdown(handle),
+            IoStack::Disabled(v) => v.shutdown(),
         }
     }
 }
+
+#[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal")))]
+impl IoHandle {
+    pub(crate) fn unpark(&self) {
+        match self {
+            IoHandle::Enabled(handle) => handle.unpark(),
+            IoHandle::Disabled(handle) => handle.unpark(),
+        }
+    }
+
+    pub(crate) fn as_ref(&self) -> Option<&crate::runtime::io::IODriverHandle> {
+        match self {
+            IoHandle::Enabled(v) => Some(v),
+            IoHandle::Disabled(..) => None,
+        }
+    }
+}
+
 
 cfg_not_io_driver! {
     pub(crate) type IoHandle = UnparkThread;
@@ -247,7 +264,7 @@ cfg_signal_internal_and_unix! {
     type SignalDriver = crate::runtime::signal::Driver;
     pub(crate) type SignalHandle = Option<crate::runtime::signal::Handle>;
 
-    fn create_signal_driver(io_driver: IoDriver, io_handle: &crate::runtime::io::Handle) -> io::Result<(SignalDriver, SignalHandle)> {
+    fn create_signal_driver(io_driver: IoDriver, io_handle: &crate::runtime::io::IODriverHandle) -> io::Result<(SignalDriver, SignalHandle)> {
         let driver = crate::runtime::signal::Driver::new(io_driver, io_handle)?;
         let handle = driver.handle();
         Ok((driver, Some(handle)))

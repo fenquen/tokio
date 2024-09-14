@@ -51,26 +51,21 @@ use std::future::Future;
 /// Work-stealing based thread pool for executing futures.
 pub(crate) struct MultiThread;
 
-// ===== impl MultiThread =====
-
 impl MultiThread {
-    pub(crate) fn new(
-        size: usize,
-        driver: Driver,
-        driver_handle: driver::Handle,
-        blocking_spawner: blocking::Spawner,
-        seed_generator: RngSeedGenerator,
-        config: Config,
-    ) -> (MultiThread, Arc<Handle>, Launch) {
+    pub(crate) fn new(coreThreadCount: usize,
+                      driver: Driver,
+                      driver_handle: driver::Handle,
+                      blocking_spawner: blocking::Spawner,
+                      seed_generator: RngSeedGenerator,
+                      config: Config) -> (MultiThread, Arc<Handle>, Launch) {
         let parker = Parker::new(driver);
-        let (handle, launch) = worker::create(
-            size,
-            parker,
-            driver_handle,
-            blocking_spawner,
-            seed_generator,
-            config,
-        );
+        let (handle, launch) =
+            worker::create(coreThreadCount,
+                           parker,
+                           driver_handle,
+                           blocking_spawner,
+                           seed_generator,
+                           config);
 
         (MultiThread, handle, launch)
     }

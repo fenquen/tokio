@@ -18,7 +18,7 @@ use std::time::Duration;
 #[derive(Debug)]
 pub(crate) struct Driver {
     /// Thread parker. The `Driver` park implementation delegates to this.
-    io: io::Driver,
+    io: io::IODriver,
 
     /// A pipe for receiving wake events from the signal handler
     receiver: UnixStream,
@@ -40,7 +40,7 @@ pub(crate) struct Handle {
 
 impl Driver {
     /// Creates a new signal `Driver` instance that delegates wakeups to `park`.
-    pub(crate) fn new(io: io::Driver, io_handle: &io::Handle) -> std_io::Result<Self> {
+    pub(crate) fn new(io: io::IODriver, io_handle: &io::IODriverHandle) -> std_io::Result<Self> {
         use std::mem::ManuallyDrop;
         use std::os::unix::io::{AsRawFd, FromRawFd};
 

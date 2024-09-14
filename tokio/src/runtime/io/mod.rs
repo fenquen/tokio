@@ -1,7 +1,7 @@
 #![cfg_attr(not(all(feature = "rt", feature = "net")), allow(dead_code))]
 mod driver;
 use driver::{Direction, Tick};
-pub(crate) use driver::{Driver, Handle, ReadyEvent};
+pub(crate) use driver::{IODriver, IODriverHandle, ReadyEvent};
 
 mod registration;
 pub(crate) use registration::Registration;

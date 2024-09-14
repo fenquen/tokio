@@ -120,7 +120,6 @@ pub enum RuntimeFlavor {
     MultiThreadAlt,
 }
 
-/// The runtime scheduler is either a multi-thread or a current-thread executor.
 #[derive(Debug)]
 pub(super) enum Scheduler {
     /// Execute all tasks on the current-thread.
@@ -130,9 +129,6 @@ pub(super) enum Scheduler {
     #[cfg(feature = "rt-multi-thread")]
     MultiThread(MultiThread),
 
-    /// Execute tasks across multiple threads.
-    #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-    MultiThreadAlt(MultiThreadAlt),
 }
 
 impl Runtime {
@@ -195,8 +191,7 @@ impl Runtime {
     /// ```
     /// use tokio::runtime::Runtime;
     ///
-    /// let rt = Runtime::new()
-    ///     .unwrap();
+    /// let rt = Runtime::new().unwrap();
     ///
     /// let handle = rt.handle();
     ///
@@ -329,7 +324,7 @@ impl Runtime {
     /// [handle]: fn@Handle::block_on
     #[track_caller]
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        if cfg!(debug_assertions) && std::mem::size_of::<F>() > BOX_FUTURE_THRESHOLD {
+        if cfg!(debug_assertions) && size_of::<F>() > BOX_FUTURE_THRESHOLD {
             self.block_on_inner(Box::pin(future))
         } else {
             self.block_on_inner(future)
@@ -338,31 +333,12 @@ impl Runtime {
 
     #[track_caller]
     fn block_on_inner<F: Future>(&self, future: F) -> F::Output {
-        #[cfg(all(
-            tokio_unstable,
-            tokio_taskdump,
-            feature = "rt",
-            target_os = "linux",
-            any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-        ))]
-        let future = super::task::trace::Trace::root(future);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let future = crate::util::trace::task(
-            future,
-            "block_on",
-            None,
-            crate::runtime::task::Id::next().as_u64(),
-        );
-
         let _enter = self.enter();
 
         match &self.scheduler {
             Scheduler::CurrentThread(exec) => exec.block_on(&self.handle.inner, future),
             #[cfg(feature = "rt-multi-thread")]
             Scheduler::MultiThread(exec) => exec.block_on(&self.handle.inner, future),
-            #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            Scheduler::MultiThreadAlt(exec) => exec.block_on(&self.handle.inner, future),
         }
     }
 

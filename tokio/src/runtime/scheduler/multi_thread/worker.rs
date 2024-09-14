@@ -99,7 +99,6 @@ pub(super) struct Worker {
     core: AtomicCell<Core>,
 }
 
-/// Core data
 struct Core {
     /// Used to schedule bookkeeping tasks every so often.
     tick: u32,

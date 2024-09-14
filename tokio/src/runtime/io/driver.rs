@@ -17,21 +17,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// I/O driver, backed by Mio.
-pub(crate) struct Driver {
+pub(crate) struct IODriver {
     /// True when an event with the signal token is received
     signal_ready: bool,
 
     /// Reuse the `mio::Events` value across calls to poll.
-    events: mio::Events,
+    mioEvents: mio::Events,
 
     /// The system event queue.
-    poll: mio::Poll,
+    mioPoll: mio::Poll,
 }
 
 /// A reference to an I/O driver.
-pub(crate) struct Handle {
+pub(crate) struct IODriverHandle {
     /// Registers I/O resources.
-    registry: mio::Registry,
+    mioRegistry: mio::Registry,
 
     /// Tracks all registrations
     registrations: RegistrationSet,
@@ -42,7 +42,7 @@ pub(crate) struct Handle {
     /// Used to wake up the reactor from a call to `turn`.
     /// Not supported on `Wasi` due to lack of threading support.
     #[cfg(not(target_os = "wasi"))]
-    waker: mio::Waker,
+    mioWaker: mio::Waker,
 
     pub(crate) metrics: IoDriverMetrics,
 }
@@ -83,38 +83,35 @@ const TOKEN_SIGNAL: mio::Token = mio::Token(1);
 fn _assert_kinds() {
     fn _assert<T: Send + Sync>() {}
 
-    _assert::<Handle>();
+    _assert::<IODriverHandle>();
 }
 
-// ===== impl Driver =====
+impl IODriver {
+    /// Creates a new event loop, returning any error that happened during the creation.
+    pub(crate) fn new(eventCount: usize) -> io::Result<(IODriver, IODriverHandle)> {
+        let mioPoll = mio::Poll::new()?;
 
-impl Driver {
-    /// Creates a new event loop, returning any error that happened during the
-    /// creation.
-    pub(crate) fn new(nevents: usize) -> io::Result<(Driver, Handle)> {
-        let poll = mio::Poll::new()?;
         #[cfg(not(target_os = "wasi"))]
-        let waker = mio::Waker::new(poll.registry(), TOKEN_WAKEUP)?;
-        let registry = poll.registry().try_clone()?;
+        let mioWaker = mio::Waker::new(mioPoll.registry(), TOKEN_WAKEUP)?;
+        let mioRegistry = mioPoll.registry().try_clone()?;
 
-        let driver = Driver {
+        let ioDriver = IODriver {
             signal_ready: false,
-            events: mio::Events::with_capacity(nevents),
-            poll,
+            mioEvents: mio::Events::with_capacity(eventCount),
+            mioPoll,
         };
 
         let (registrations, synced) = RegistrationSet::new();
 
-        let handle = Handle {
-            registry,
+        let ioDriverHandle = IODriverHandle {
+            mioRegistry,
             registrations,
             synced: Mutex::new(synced),
-            #[cfg(not(target_os = "wasi"))]
-            waker,
+            mioWaker,
             metrics: IoDriverMetrics::default(),
         };
 
-        Ok((driver, handle))
+        Ok((ioDriver, ioDriverHandle))
     }
 
     pub(crate) fn park(&mut self, rt_handle: &driver::Handle) {
@@ -137,16 +134,15 @@ impl Driver {
         }
     }
 
-    fn turn(&mut self, handle: &Handle, max_wait: Option<Duration>) {
+    fn turn(&mut self, handle: &IODriverHandle, max_wait: Option<Duration>) {
         debug_assert!(!handle.registrations.is_shutdown(&handle.synced.lock()));
 
         handle.release_pending_registrations();
 
-        let events = &mut self.events;
+        let events = &mut self.mioEvents;
 
-        // Block waiting for an event to happen, peeling out how many events
-        // happened.
-        match self.poll.poll(events, max_wait) {
+        // Block waiting for an event to happen, peeling out how many events happened.
+        match self.mioPoll.poll(events, max_wait) {
             Ok(()) => {}
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
             #[cfg(target_os = "wasi")]
@@ -188,13 +184,13 @@ impl Driver {
     }
 }
 
-impl fmt::Debug for Driver {
+impl fmt::Debug for IODriver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Driver")
     }
 }
 
-impl Handle {
+impl IODriverHandle {
     /// Forces a reactor blocked in a call to `turn` to wakeup, or otherwise
     /// makes the next call to `turn` return immediately.
     ///
@@ -206,7 +202,7 @@ impl Handle {
     /// return immediately.
     pub(crate) fn unpark(&self) {
         #[cfg(not(target_os = "wasi"))]
-        self.waker.wake().expect("failed to wake I/O driver");
+        self.mioWaker.wake().expect("failed to wake I/O driver");
     }
 
     /// Registers an I/O resource with the reactor for a given `mio::Ready` state.
@@ -222,7 +218,7 @@ impl Handle {
 
         // we should remove the `scheduled_io` from the `registrations` set if registering
         // the `source` with the OS fails. Otherwise it will leak the `scheduled_io`.
-        if let Err(e) = self.registry.register(source, token, interest.to_mio()) {
+        if let Err(e) = self.mioRegistry.register(source, token, interest.to_mio()) {
             // safety: `scheduled_io` is part of the `registrations` set.
             unsafe {
                 self.registrations
@@ -245,7 +241,7 @@ impl Handle {
         source: &mut impl Source,
     ) -> io::Result<()> {
         // Deregister the source with the OS poller **first**
-        self.registry.deregister(source)?;
+        self.mioRegistry.deregister(source)?;
 
         if self
             .registrations
@@ -266,7 +262,7 @@ impl Handle {
     }
 }
 
-impl fmt::Debug for Handle {
+impl fmt::Debug for IODriverHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Handle")
     }

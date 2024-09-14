@@ -4,6 +4,7 @@ use crate::runtime::task::{Cell, Harness, Header, Id, Schedule, State};
 
 use std::ptr::NonNull;
 use std::task::{Poll, Waker};
+use crate::runtime::task;
 
 /// Raw task handle
 #[derive(Clone)]
@@ -161,8 +162,8 @@ impl RawTask {
         RawTask { headerPtr }
     }
 
-    pub(super) unsafe fn from_raw(ptr: NonNull<Header>) -> RawTask {
-        RawTask { headerPtr: ptr }
+    pub(super) unsafe fn fromHeaderPtr(headerPtr: NonNull<Header>) -> RawTask {
+        RawTask { headerPtr }
     }
 
     pub(super) fn header_ptr(&self) -> NonNull<Header> {
@@ -190,42 +191,33 @@ impl RawTask {
 
     /// Safety: mutual exclusion is required to call this function.
     pub(crate) fn poll(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.poll)(self.headerPtr) }
+        unsafe { (self.header().vtable.poll)(self.headerPtr) }
     }
 
     pub(super) fn schedule(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.schedule)(self.headerPtr) }
+        unsafe { (self.header().vtable.schedule)(self.headerPtr) }
     }
 
     pub(super) fn dealloc(self) {
-        let vtable = self.header().vtable;
-        unsafe {
-            (vtable.dealloc)(self.headerPtr);
-        }
+        unsafe { (self.header().vtable.dealloc)(self.headerPtr); }
     }
 
     /// Safety: `dst` must be a `*mut Poll<super::Result<T::Output>>` where `T`
     /// is the future stored by the task.
     pub(super) unsafe fn try_read_output(self, dst: *mut (), waker: &Waker) {
-        let vtable = self.header().vtable;
-        (vtable.try_read_output)(self.headerPtr, dst, waker);
+        (self.header().vtable.try_read_output)(self.headerPtr, dst, waker);
     }
 
     pub(super) fn drop_join_handle_slow(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.drop_join_handle_slow)(self.headerPtr) }
+        unsafe { (self.header().vtable.drop_join_handle_slow)(self.headerPtr) }
     }
 
     pub(super) fn drop_abort_handle(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.drop_abort_handle)(self.headerPtr) }
+        unsafe { (self.header().vtable.drop_abort_handle)(self.headerPtr) }
     }
 
     pub(super) fn shutdown(self) {
-        let vtable = self.header().vtable;
-        unsafe { (vtable.shutdown)(self.headerPtr) }
+        unsafe { (self.header().vtable.shutdown)(self.headerPtr) }
     }
 
     /// Increment the task's reference count.
@@ -241,10 +233,7 @@ impl RawTask {
     ///
     /// Safety: make sure only one queue uses this and access is synchronized.
     pub(crate) unsafe fn get_queue_next(self) -> Option<RawTask> {
-        self.header()
-            .queue_next
-            .with(|ptr| *ptr)
-            .map(|p| RawTask::from_raw(p))
+        self.header().queue_next.with(|ptr| *ptr).map(|p| RawTask::fromHeaderPtr(p))
     }
 
     /// Sets the queue-next pointer
@@ -259,23 +248,19 @@ impl RawTask {
 
 impl Copy for RawTask {}
 
-unsafe fn poll<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.poll();
+unsafe fn poll<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {
+    Harness::<T, S>::from_raw(headerPtr).poll();
 }
 
-unsafe fn schedule<S: Schedule>(ptr: NonNull<Header>) {
+unsafe fn schedule<S: Schedule>(headerPtr: NonNull<Header>) {
     use crate::runtime::task::{Notified, Task};
 
-    let scheduler = Header::get_scheduler::<S>(ptr);
-    scheduler
-        .as_ref()
-        .schedule(Notified(Task::from_raw(ptr.cast())));
+    let scheduler = Header::get_scheduler::<S>(headerPtr);
+    scheduler.as_ref().schedule(Notified(Task::from_raw(headerPtr.cast())));
 }
 
-unsafe fn dealloc<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.dealloc();
+unsafe fn dealloc<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {
+    Harness::<T, S>::from_raw(headerPtr).dealloc();
 }
 
 unsafe fn try_read_output<T: Future, S: Schedule>(

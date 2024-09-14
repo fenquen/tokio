@@ -91,23 +91,13 @@ pub(crate) mod sys {
         match std::env::var(ENV_WORKER_THREADS) {
             Ok(s) => {
                 let n = s.parse().unwrap_or_else(|e| {
-                    panic!(
-                        "\"{}\" must be usize, error: {}, value: {}",
-                        ENV_WORKER_THREADS, e, s
-                    )
+                    panic!("\"{}\" must be usize, error: {}, value: {}", ENV_WORKER_THREADS, e, s)
                 });
                 assert!(n > 0, "\"{}\" cannot be set to 0", ENV_WORKER_THREADS);
                 n
             }
-            Err(std::env::VarError::NotPresent) => {
-                std::thread::available_parallelism().map_or(1, NonZeroUsize::get)
-            }
-            Err(std::env::VarError::NotUnicode(e)) => {
-                panic!(
-                    "\"{}\" must be valid unicode, error: {:?}",
-                    ENV_WORKER_THREADS, e
-                )
-            }
+            Err(std::env::VarError::NotPresent) => std::thread::available_parallelism().map_or(1, NonZeroUsize::get)
+            Err(std::env::VarError::NotUnicode(e)) => panic!("\"{}\" must be valid unicode, error: {:?}", ENV_WORKER_THREADS, e)
         }
     }
 

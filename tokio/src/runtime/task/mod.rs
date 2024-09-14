@@ -354,7 +354,7 @@ impl<S: 'static> Task<S> {
     }
 
     unsafe fn from_raw(ptr: NonNull<Header>) -> Task<S> {
-        Task::new(RawTask::from_raw(ptr))
+        Task::new(RawTask::fromHeaderPtr(ptr))
     }
 
     #[cfg(all(

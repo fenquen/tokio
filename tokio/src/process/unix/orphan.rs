@@ -132,7 +132,7 @@ where
 #[cfg(all(test, not(loom)))]
 pub(crate) mod test {
     use super::*;
-    use crate::runtime::io::Driver as IoDriver;
+    use crate::runtime::io::IODriver as IoDriver;
     use crate::runtime::signal::{Driver as SignalDriver, Handle as SignalHandle};
     use crate::sync::watch;
     use std::cell::{Cell, RefCell};
