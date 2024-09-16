@@ -7,7 +7,7 @@
 #![cfg_attr(docsrs, doc(cfg(all(unix, feature = "signal"))))]
 
 use crate::runtime::scheduler;
-use crate::runtime::signal::Handle;
+use crate::runtime::signal::SignalDriverHandle;
 use crate::signal::registry::{globals, EventId, EventInfo, Globals, Init, Storage};
 use crate::signal::RxFuture;
 use crate::sync::watch;
@@ -253,7 +253,7 @@ fn action(globals: &'static Globals, signal: libc::c_int) {
 ///
 /// This will register the signal handler if it hasn't already been registered,
 /// returning any error along the way if that fails.
-fn signal_enable(signal: SignalKind, handle: &Handle) -> io::Result<()> {
+fn signal_enable(signal: SignalKind, handle: &SignalDriverHandle) -> io::Result<()> {
     let signal = signal.0;
     if signal < 0 || signal_hook_registry::FORBIDDEN.contains(&signal) {
         return Err(Error::new(
@@ -403,7 +403,7 @@ pub fn signal(kind: SignalKind) -> io::Result<Signal> {
 
 pub(crate) fn signal_with_handle(
     kind: SignalKind,
-    handle: &Handle,
+    handle: &SignalDriverHandle,
 ) -> io::Result<watch::Receiver<()>> {
     // Turn the signal delivery on once we are ready for it
     signal_enable(kind, handle)?;
@@ -507,14 +507,14 @@ mod tests {
 
     #[test]
     fn signal_enable_error_on_invalid_input() {
-        signal_enable(SignalKind::from_raw(-1), &Handle::default()).unwrap_err();
+        signal_enable(SignalKind::from_raw(-1), &SignalDriverHandle::default()).unwrap_err();
     }
 
     #[test]
     fn signal_enable_error_on_forbidden_input() {
         signal_enable(
             SignalKind::from_raw(signal_hook_registry::FORBIDDEN[0]),
-            &Handle::default(),
+            &SignalDriverHandle::default(),
         )
         .unwrap_err();
     }

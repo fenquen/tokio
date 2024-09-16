@@ -1,5 +1,5 @@
 use crate::loom::sync::{Mutex, MutexGuard};
-use crate::runtime::signal::Handle as SignalHandle;
+use crate::runtime::signal::SignalDriverHandle as SignalHandle;
 use crate::signal::unix::{signal_with_handle, SignalKind};
 use crate::sync::watch;
 use std::io;
@@ -133,7 +133,7 @@ where
 pub(crate) mod test {
     use super::*;
     use crate::runtime::io::IODriver as IoDriver;
-    use crate::runtime::signal::{Driver as SignalDriver, Handle as SignalHandle};
+    use crate::runtime::signal::{SignalDriver as SignalDriver, SignalDriverHandle as SignalHandle};
     use crate::sync::watch;
     use std::cell::{Cell, RefCell};
     use std::io;

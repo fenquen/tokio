@@ -33,7 +33,7 @@ mod pidfd_reaper;
 use crate::io::{AsyncRead, AsyncWrite, PollEvented, ReadBuf};
 use crate::process::kill::Kill;
 use crate::process::SpawnedChild;
-use crate::runtime::signal::Handle as SignalHandle;
+use crate::runtime::signal::SignalDriverHandle as SignalHandle;
 use crate::signal::unix::{signal, Signal, SignalKind};
 
 use mio::event::Source;

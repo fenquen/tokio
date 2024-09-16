@@ -235,10 +235,7 @@ impl ScheduledIo {
             };
             let next = TICK.pack(new_tick, new.as_usize());
 
-            match self
-                .readiness
-                .compare_exchange(current, next, AcqRel, Acquire)
-            {
+            match self.readiness.compare_exchange(current, next, AcqRel, Acquire) {
                 Ok(_) => return,
                 // we lost the race, retry!
                 Err(actual) => current = actual,
@@ -275,7 +272,8 @@ impl ScheduledIo {
             }
         }
 
-        'outer: loop {
+        'outer:
+        loop {
             let mut iter = waiters.list.drain_filter(|w| ready.satisfies(w.interest));
 
             while wakers.can_push() {

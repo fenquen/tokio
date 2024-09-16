@@ -54,7 +54,7 @@ pub(crate) struct MultiThread;
 impl MultiThread {
     pub(crate) fn new(coreThreadCount: usize,
                       driver: Driver,
-                      driver_handle: driver::Handle,
+                      driver_handle: driver::DriverHandle,
                       blocking_spawner: blocking::Spawner,
                       seed_generator: RngSeedGenerator,
                       config: Config) -> (MultiThread, Arc<Handle>, Launch) {

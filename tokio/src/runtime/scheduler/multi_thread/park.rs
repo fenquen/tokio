@@ -66,11 +66,11 @@ impl Parker {
         }
     }
 
-    pub(crate) fn park(&mut self, handle: &driver::Handle) {
+    pub(crate) fn park(&mut self, handle: &driver::DriverHandle) {
         self.inner.park(handle);
     }
 
-    pub(crate) fn park_timeout(&mut self, handle: &driver::Handle, duration: Duration) {
+    pub(crate) fn park_timeout(&mut self, handle: &driver::DriverHandle, duration: Duration) {
         // Only parking with zero is supported...
         assert_eq!(duration, Duration::from_millis(0));
 
@@ -86,7 +86,7 @@ impl Parker {
         }
     }
 
-    pub(crate) fn shutdown(&mut self, handle: &driver::Handle) {
+    pub(crate) fn shutdown(&mut self, handle: &driver::DriverHandle) {
         self.inner.shutdown(handle);
     }
 }
@@ -105,14 +105,14 @@ impl Clone for Parker {
 }
 
 impl Unparker {
-    pub(crate) fn unpark(&self, driver: &driver::Handle) {
+    pub(crate) fn unpark(&self, driver: &driver::DriverHandle) {
         self.inner.unpark(driver);
     }
 }
 
 impl Inner {
     /// Parks the current thread for at most `dur`.
-    fn park(&self, handle: &driver::Handle) {
+    fn park(&self, handle: &driver::DriverHandle) {
         // If we were previously notified then we consume this notification and
         // return quickly.
         if self
@@ -170,7 +170,7 @@ impl Inner {
         }
     }
 
-    fn park_driver(&self, driver: &mut Driver, handle: &driver::Handle) {
+    fn park_driver(&self, driver: &mut Driver, handle: &driver::DriverHandle) {
         match self
             .state
             .compare_exchange(EMPTY, PARKED_DRIVER, SeqCst, SeqCst)
@@ -200,7 +200,7 @@ impl Inner {
         }
     }
 
-    fn unpark(&self, driver: &driver::Handle) {
+    fn unpark(&self, driver: &driver::DriverHandle) {
         // To ensure the unparked thread will observe any writes we made before
         // this call, we must perform a release operation that `park` can
         // synchronize with. To do that we must write `NOTIFIED` even if `state`
@@ -232,7 +232,7 @@ impl Inner {
         self.condvar.notify_one();
     }
 
-    fn shutdown(&self, handle: &driver::Handle) {
+    fn shutdown(&self, handle: &driver::DriverHandle) {
         if let Some(mut driver) = self.shared.driver.try_lock() {
             driver.shutdown(handle);
         }

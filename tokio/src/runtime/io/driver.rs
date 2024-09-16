@@ -114,17 +114,17 @@ impl IODriver {
         Ok((ioDriver, ioDriverHandle))
     }
 
-    pub(crate) fn park(&mut self, rt_handle: &driver::Handle) {
-        let handle = rt_handle.io();
-        self.turn(handle, None);
+    pub(crate) fn park(&mut self, driverHandle: &driver::DriverHandle) {
+        let ioDriverHandle = driverHandle.io();
+        self.turn(ioDriverHandle, None);
     }
 
-    pub(crate) fn park_timeout(&mut self, rt_handle: &driver::Handle, duration: Duration) {
+    pub(crate) fn park_timeout(&mut self, rt_handle: &driver::DriverHandle, duration: Duration) {
         let handle = rt_handle.io();
         self.turn(handle, Some(duration));
     }
 
-    pub(crate) fn shutdown(&mut self, rt_handle: &driver::Handle) {
+    pub(crate) fn shutdown(&mut self, rt_handle: &driver::DriverHandle) {
         let handle = rt_handle.io();
         let ios = handle.registrations.shutdown(&mut handle.synced.lock());
 
@@ -134,15 +134,15 @@ impl IODriver {
         }
     }
 
-    fn turn(&mut self, handle: &IODriverHandle, max_wait: Option<Duration>) {
-        debug_assert!(!handle.registrations.is_shutdown(&handle.synced.lock()));
+    fn turn(&mut self, ioDriverHandle: &IODriverHandle, max_wait: Option<Duration>) {
+        debug_assert!(!ioDriverHandle.registrations.is_shutdown(&ioDriverHandle.synced.lock()));
 
-        handle.release_pending_registrations();
+        ioDriverHandle.release_pending_registrations();
 
-        let events = &mut self.mioEvents;
+        let mioEvents = &mut self.mioEvents;
 
         // Block waiting for an event to happen, peeling out how many events happened.
-        match self.mioPoll.poll(events, max_wait) {
+        match self.mioPoll.poll(mioEvents, max_wait) {
             Ok(()) => {}
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
             #[cfg(target_os = "wasi")]
@@ -155,15 +155,16 @@ impl IODriver {
 
         // Process all the events that came in, dispatching appropriately
         let mut ready_count = 0;
-        for event in events.iter() {
-            let token = event.token();
+        for mioEvent in mioEvents.iter() {
+            let token = mioEvent.token();
 
             if token == TOKEN_WAKEUP {
                 // Nothing to do, the event is used to unblock the I/O driver
             } else if token == TOKEN_SIGNAL {
                 self.signal_ready = true;
             } else {
-                let ready = Ready::from_mio(event);
+                let ready = Ready::from_mio(mioEvent);
+
                 // Use std::ptr::from_exposed_addr when stable
                 let ptr: *const ScheduledIo = token.0 as *const _;
 
@@ -171,16 +172,16 @@ impl IODriver {
                 // until they are both deregistered from mio **and** we know the I/O
                 // driver is not concurrently polling. The I/O driver holds ownership of
                 // an `Arc<ScheduledIo>` so we can safely cast this to a ref.
-                let io: &ScheduledIo = unsafe { &*ptr };
+                let scheduleInfo: &ScheduledIo = unsafe { &*ptr };
 
-                io.set_readiness(Tick::Set, |curr| curr | ready);
-                io.wake(ready);
+                scheduleInfo.set_readiness(Tick::Set, |curr| curr | ready);
+                scheduleInfo.wake(ready);
 
                 ready_count += 1;
             }
         }
 
-        handle.metrics.incr_ready_count_by(ready_count);
+        ioDriverHandle.metrics.incr_ready_count_by(ready_count);
     }
 }
 
@@ -208,11 +209,9 @@ impl IODriverHandle {
     /// Registers an I/O resource with the reactor for a given `mio::Ready` state.
     ///
     /// The registration token is returned.
-    pub(super) fn add_source(
-        &self,
-        source: &mut impl mio::event::Source,
-        interest: Interest,
-    ) -> io::Result<Arc<ScheduledIo>> {
+    pub(super) fn add_source(&self,
+                             source: &mut impl mio::event::Source,
+                             interest: Interest) -> io::Result<Arc<ScheduledIo>> {
         let scheduled_io = self.registrations.allocate(&mut self.synced.lock())?;
         let token = scheduled_io.token();
 
@@ -220,10 +219,7 @@ impl IODriverHandle {
         // the `source` with the OS fails. Otherwise it will leak the `scheduled_io`.
         if let Err(e) = self.mioRegistry.register(source, token, interest.to_mio()) {
             // safety: `scheduled_io` is part of the `registrations` set.
-            unsafe {
-                self.registrations
-                    .remove(&mut self.synced.lock(), &scheduled_io)
-            };
+            unsafe { self.registrations.remove(&mut self.synced.lock(), &scheduled_io) };
 
             return Err(e);
         }

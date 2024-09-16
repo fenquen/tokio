@@ -242,7 +242,7 @@ const MAX_LIFO_POLLS_PER_TICK: usize = 3;
 pub(super) fn create(
     size: usize,
     park: Parker,
-    driver_handle: driver::Handle,
+    driver_handle: driver::DriverHandle,
     blocking_spawner: blocking::Spawner,
     seed_generator: RngSeedGenerator,
     config: Config,

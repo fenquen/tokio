@@ -2,12 +2,12 @@ use crate::runtime::time::TimeSource;
 use std::fmt;
 
 /// Handle to time driver instance.
-pub(crate) struct Handle {
+pub(crate) struct TimeDriverHandle {
     pub(super) time_source: TimeSource,
     pub(super) inner: super::Inner,
 }
 
-impl Handle {
+impl TimeDriverHandle {
     /// Returns the time source associated with this handle.
     pub(crate) fn time_source(&self) -> &TimeSource {
         &self.time_source
@@ -21,14 +21,12 @@ impl Handle {
     /// Track that the driver is being unparked
     pub(crate) fn unpark(&self) {
         #[cfg(feature = "test-util")]
-        self.inner
-            .did_wake
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.inner.did_wake.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
 cfg_not_rt! {
-    impl Handle {
+    impl TimeDriverHandle {
         /// Tries to get a handle to the current timer.
         ///
         /// # Panics
@@ -55,7 +53,7 @@ cfg_not_rt! {
     }
 }
 
-impl fmt::Debug for Handle {
+impl fmt::Debug for TimeDriverHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Handle")
     }

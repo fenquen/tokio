@@ -556,7 +556,7 @@ impl TimerEntry {
         if reregister {
             unsafe {
                 self.driver()
-                    .reregister(&self.driver.driver().io, tick, self.inner().into());
+                    .reRegister(&self.driver.driver().ioHandleEnum, tick, self.inner().into());
             }
         }
     }
@@ -579,7 +579,7 @@ impl TimerEntry {
         self.inner().state.poll(cx.waker())
     }
 
-    pub(crate) fn driver(&self) -> &super::Handle {
+    pub(crate) fn driver(&self) -> &super::TimeDriverHandle {
         self.driver.driver().time()
     }
 

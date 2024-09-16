@@ -51,10 +51,10 @@ pub(super) enum Context {
 
 impl Handle {
     #[cfg_attr(not(feature = "full"), allow(dead_code))]
-    pub(crate) fn driver(&self) -> &driver::Handle {
+    pub(crate) fn driver(&self) -> &driver::DriverHandle {
         match *self {
             #[cfg(feature = "rt")]
-            Handle::CurrentThread(ref h) => &h.driver,
+            Handle::CurrentThread(ref h) => &h.driverHandle,
 
             #[cfg(feature = "rt-multi-thread")]
             Handle::MultiThread(ref h) => &h.driver,

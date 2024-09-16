@@ -16,9 +16,9 @@ use std::time::Duration;
 /// Note: this driver relies on having an enabled IO driver in order to listen to
 /// pipe write wakeups.
 #[derive(Debug)]
-pub(crate) struct Driver {
+pub(crate) struct SignalDriver {
     /// Thread parker. The `Driver` park implementation delegates to this.
-    io: io::IODriver,
+    ioDriver: io::IODriver,
 
     /// A pipe for receiving wake events from the signal handler
     receiver: UnixStream,
@@ -30,7 +30,7 @@ pub(crate) struct Driver {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct Handle {
+pub(crate) struct SignalDriverHandle {
     /// Paired w/ the `Arc` above and is used to check if the driver is still
     /// around before attempting to register a signal handler.
     inner: Weak<()>,
@@ -38,8 +38,8 @@ pub(crate) struct Handle {
 
 // ===== impl Driver =====
 
-impl Driver {
-    /// Creates a new signal `Driver` instance that delegates wakeups to `park`.
+impl SignalDriver {
+    /// creates a new signal `Driver` instance that delegates wakeups to `park`.
     pub(crate) fn new(io: io::IODriver, io_handle: &io::IODriverHandle) -> std_io::Result<Self> {
         use std::mem::ManuallyDrop;
         use std::os::unix::io::{AsRawFd, FromRawFd};
@@ -67,14 +67,13 @@ impl Driver {
         let receiver_fd = globals().receiver.as_raw_fd();
 
         // safety: there is nothing unsafe about this, but the `from_raw_fd` fn is marked as unsafe.
-        let original =
-            ManuallyDrop::new(unsafe { std::os::unix::net::UnixStream::from_raw_fd(receiver_fd) });
+        let original = ManuallyDrop::new(unsafe { std::os::unix::net::UnixStream::from_raw_fd(receiver_fd) });
         let mut receiver = UnixStream::from_std(original.try_clone()?);
 
         io_handle.register_signal_receiver(&mut receiver)?;
 
         Ok(Self {
-            io,
+            ioDriver: io,
             receiver,
             inner: Arc::new(()),
         })
@@ -82,30 +81,29 @@ impl Driver {
 
     /// Returns a handle to this event loop which can be sent across threads
     /// and can be used as a proxy to the event loop itself.
-    pub(crate) fn handle(&self) -> Handle {
-        Handle {
+    pub(crate) fn handle(&self) -> SignalDriverHandle {
+        SignalDriverHandle {
             inner: Arc::downgrade(&self.inner),
         }
     }
 
-    pub(crate) fn park(&mut self, handle: &driver::Handle) {
-        self.io.park(handle);
+    pub(crate) fn park(&mut self, handle: &driver::DriverHandle) {
+        self.ioDriver.park(handle);
         self.process();
     }
 
-    pub(crate) fn park_timeout(&mut self, handle: &driver::Handle, duration: Duration) {
-        self.io.park_timeout(handle, duration);
+    pub(crate) fn park_timeout(&mut self, handle: &driver::DriverHandle, duration: Duration) {
+        self.ioDriver.park_timeout(handle, duration);
         self.process();
     }
 
-    pub(crate) fn shutdown(&mut self, handle: &driver::Handle) {
-        self.io.shutdown(handle);
+    pub(crate) fn shutdown(&mut self, handle: &driver::DriverHandle) {
+        self.ioDriver.shutdown(handle);
     }
 
     fn process(&mut self) {
-        // If the signal pipe has not received a readiness event, then there is
-        // nothing else to do.
-        if !self.io.consume_signal_ready() {
+        // If the signal pipe has not received a readiness event, then there is nothing else to do.
+        if !self.ioDriver.consume_signal_ready() {
             return;
         }
 
@@ -129,7 +127,7 @@ impl Driver {
 
 // ===== impl Handle =====
 
-impl Handle {
+impl SignalDriverHandle {
     pub(crate) fn check_inner(&self) -> std_io::Result<()> {
         if self.inner.strong_count() > 0 {
             Ok(())

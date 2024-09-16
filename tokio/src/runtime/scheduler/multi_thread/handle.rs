@@ -22,7 +22,7 @@ pub(crate) struct Handle {
     pub(super) shared: worker::Shared,
 
     /// Resource driver handles
-    pub(crate) driver: driver::Handle,
+    pub(crate) driver: driver::DriverHandle,
 
     /// Blocking pool spawner
     pub(crate) blocking_spawner: blocking::Spawner,

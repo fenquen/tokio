@@ -38,7 +38,7 @@ pub(crate) struct Handle {
     shared: Shared,
 
     /// Resource driver handles
-    pub(crate) driver: driver::Handle,
+    pub(crate) driverHandle: driver::DriverHandle,
 
     /// Blocking pool spawner
     pub(crate) blocking_spawner: blocking::Spawner,
@@ -124,7 +124,7 @@ const DEFAULT_GLOBAL_QUEUE_INTERVAL: u32 = 31;
 impl CurrentThread {
     pub(crate) fn new(
         driver: Driver,
-        driver_handle: driver::Handle,
+        driver_handle: driver::DriverHandle,
         blocking_spawner: blocking::Spawner,
         seed_generator: RngSeedGenerator,
         config: Config,
@@ -150,7 +150,7 @@ impl CurrentThread {
                 scheduler_metrics: SchedulerMetrics::new(),
                 worker_metrics,
             },
-            driver: driver_handle,
+            driverHandle: driver_handle,
             blocking_spawner,
             seed_generator,
         });
@@ -287,7 +287,7 @@ fn shutdown2(mut core: Box<Core>, handle: &Handle) -> Box<Core> {
 
     // Shutdown the resource drivers
     if let Some(driver) = core.driver.as_mut() {
-        driver.shutdown(&handle.driver);
+        driver.shutdown(&handle.driverHandle);
     }
 
     core
@@ -379,7 +379,7 @@ impl Context {
             core.submit_metrics(handle);
 
             let (c, ()) = self.enter(core, || {
-                driver.park(&handle.driver);
+                driver.park(&handle.driverHandle);
                 self.defer.wake();
             });
 
@@ -405,7 +405,7 @@ impl Context {
         core.submit_metrics(handle);
 
         let (mut core, ()) = self.enter(core, || {
-            driver.park_timeout(&handle.driver, Duration::from_millis(0));
+            driver.park_timeout(&handle.driverHandle, Duration::from_millis(0));
             self.defer.wake();
         });
 
@@ -612,7 +612,7 @@ impl Schedule for Arc<Handle> {
 
                 // Schedule the task
                 self.shared.inject.push(task);
-                self.driver.unpark();
+                self.driverHandle.unpark();
             }
         });
     }
@@ -620,38 +620,6 @@ impl Schedule for Arc<Handle> {
     fn hooks(&self) -> TaskHarnessScheduleHooks {
         TaskHarnessScheduleHooks {
             task_terminate_callback: self.task_hooks.task_terminate_callback.clone(),
-        }
-    }
-
-    cfg_unstable! {
-        fn unhandled_panic(&self) {
-            use crate::runtime::UnhandledPanic;
-
-            match self.shared.config.unhandled_panic {
-                UnhandledPanic::Ignore => {
-                    // Do nothing
-                }
-                UnhandledPanic::ShutdownRuntime => {
-                    use scheduler::Context::CurrentThread;
-
-                    // This hook is only called from within the runtime, so
-                    // `context::with_scheduler` should match with `&self`, i.e.
-                    // there is no opportunity for a nested scheduler to be
-                    // called.
-                    context::with_scheduler(|maybe_cx| match maybe_cx {
-                        Some(CurrentThread(cx)) if Arc::ptr_eq(self, &cx.handle) => {
-                            let mut core = cx.core.borrow_mut();
-
-                            // If `None`, the runtime is shutting down, so there is no need to signal shutdown
-                            if let Some(core) = core.as_mut() {
-                                core.unhandled_panic = true;
-                                self.shared.owned.close_and_shutdown_all(0);
-                            }
-                        }
-                        _ => unreachable!("runtime core not set in CURRENT thread-local"),
-                    })
-                }
-            }
         }
     }
 }
@@ -664,7 +632,7 @@ impl Wake for Handle {
     /// Wake by reference
     fn wake_by_ref(arc_self: &Arc<Self>) {
         arc_self.shared.woken.store(true, Release);
-        arc_self.driver.unpark();
+        arc_self.driverHandle.unpark();
     }
 }
 

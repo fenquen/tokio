@@ -75,8 +75,7 @@ impl WakeList {
 
 impl Drop for WakeList {
     fn drop(&mut self) {
-        let slice =
-            ptr::slice_from_raw_parts_mut(self.inner.as_mut_ptr().cast::<Waker>(), self.curr);
+        let slice = ptr::slice_from_raw_parts_mut(self.inner.as_mut_ptr().cast::<Waker>(), self.curr);
         // SAFETY: The first `curr` elements are initialized, so we can drop them.
         unsafe { ptr::drop_in_place(slice) };
     }

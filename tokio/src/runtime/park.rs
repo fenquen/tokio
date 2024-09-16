@@ -132,11 +132,7 @@ impl Inner {
     fn park_timeout(&self, dur: Duration) {
         // Like `park` above we have a fast path for an already-notified thread,
         // and afterwards we start coordinating for a sleep. Return quickly.
-        if self
-            .state
-            .compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst)
-            .is_ok()
-        {
+        if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
             return;
         }
 
