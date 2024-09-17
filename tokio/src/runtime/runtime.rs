@@ -1,7 +1,7 @@
 use super::BOX_FUTURE_THRESHOLD;
 use crate::runtime::blocking::BlockingPool;
 use crate::runtime::scheduler::CurrentThread;
-use crate::runtime::{context, EnterGuard, Handle};
+use crate::runtime::{context, EnterGuard, RuntimeHandle};
 use crate::task::JoinHandle;
 
 use std::future::Future;
@@ -78,7 +78,7 @@ cfg_rt_multi_thread! {
 /// reference is left over.
 ///
 /// The runtime context is entered using the [`Runtime::enter`] or
-/// [`Handle::enter`] methods, which use a thread-local variable to store the
+/// [`RuntimeHandle::enter`] methods, which use a thread-local variable to store the
 /// current runtime. Whenever you are inside the runtime context, methods such
 /// as [`tokio::spawn`] will use the runtime whose context you are inside.
 ///
@@ -86,7 +86,7 @@ cfg_rt_multi_thread! {
 /// [mod]: index.html
 /// [`new`]: method@Self::new
 /// [`Builder`]: struct@Builder
-/// [`Handle`]: struct@Handle
+/// [`Handle`]: struct@RuntimeHandle
 /// [main]: macro@crate::main
 /// [`tokio::spawn`]: crate::spawn
 /// [`Arc::try_unwrap`]: std::sync::Arc::try_unwrap
@@ -96,10 +96,10 @@ cfg_rt_multi_thread! {
 #[derive(Debug)]
 pub struct Runtime {
     /// Task scheduler
-    scheduler: Scheduler,
+    schedulerEnum: SchedulerEnum,
 
     /// Handle to runtime, also contains driver handles
-    handle: Handle,
+    runtimeHandle: RuntimeHandle,
 
     /// Blocking pool handle, used to signal shutdown
     blocking_pool: BlockingPool,
@@ -107,7 +107,7 @@ pub struct Runtime {
 
 /// The flavor of a `Runtime`.
 ///
-/// This is the return type for [`Handle::runtime_flavor`](crate::runtime::Handle::runtime_flavor()).
+/// This is the return type for [`Handle::runtime_flavor`](crate::runtime::RuntimeHandle::runtime_flavor()).
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RuntimeFlavor {
@@ -121,7 +121,7 @@ pub enum RuntimeFlavor {
 }
 
 #[derive(Debug)]
-pub(super) enum Scheduler {
+pub(super) enum SchedulerEnum {
     /// Execute all tasks on the current-thread.
     CurrentThread(CurrentThread),
 
@@ -132,14 +132,12 @@ pub(super) enum Scheduler {
 }
 
 impl Runtime {
-    pub(super) fn from_parts(
-        scheduler: Scheduler,
-        handle: Handle,
-        blocking_pool: BlockingPool,
-    ) -> Runtime {
+    pub(super) fn from_parts(schedulerEnum: SchedulerEnum,
+                             runtimeHandle: RuntimeHandle,
+                             blocking_pool: BlockingPool) -> Runtime {
         Runtime {
-            scheduler,
-            handle,
+            schedulerEnum,
+            runtimeHandle,
             blocking_pool,
         }
     }
@@ -183,8 +181,8 @@ impl Runtime {
     /// The returned handle can be used to spawn tasks that run on this runtime, and can
     /// be cloned to allow moving the `Handle` to other threads.
     ///
-    /// Calling [`Handle::block_on`] on a handle to a `current_thread` runtime is error-prone.
-    /// Refer to the documentation of [`Handle::block_on`] for more.
+    /// Calling [`RuntimeHandle::block_on`] on a handle to a `current_thread` runtime is error-prone.
+    /// Refer to the documentation of [`RuntimeHandle::block_on`] for more.
     ///
     /// # Examples
     ///
@@ -197,8 +195,8 @@ impl Runtime {
     ///
     /// // Use the handle...
     /// ```
-    pub fn handle(&self) -> &Handle {
-        &self.handle
+    pub fn handle(&self) -> &RuntimeHandle {
+        &self.runtimeHandle
     }
 
     /// Spawns a future onto the Tokio runtime.
@@ -237,9 +235,9 @@ impl Runtime {
         F::Output: Send + 'static,
     {
         if cfg!(debug_assertions) && std::mem::size_of::<F>() > BOX_FUTURE_THRESHOLD {
-            self.handle.spawn_named(Box::pin(future), None)
+            self.runtimeHandle.spawn_named(Box::pin(future), None)
         } else {
-            self.handle.spawn_named(future, None)
+            self.runtimeHandle.spawn_named(future, None)
         }
     }
 
@@ -266,7 +264,7 @@ impl Runtime {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.handle.spawn_blocking(func)
+        self.runtimeHandle.spawn_blocking(func)
     }
 
     /// Runs a future to completion on the Tokio runtime. This is the
@@ -321,7 +319,7 @@ impl Runtime {
     /// });
     /// ```
     ///
-    /// [handle]: fn@Handle::block_on
+    /// [handle]: fn@RuntimeHandle::block_on
     #[track_caller]
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         if cfg!(debug_assertions) && size_of::<F>() > BOX_FUTURE_THRESHOLD {
@@ -335,10 +333,10 @@ impl Runtime {
     fn block_on_inner<F: Future>(&self, future: F) -> F::Output {
         let _enter = self.enter();
 
-        match &self.scheduler {
-            Scheduler::CurrentThread(exec) => exec.block_on(&self.handle.inner, future),
+        match &self.schedulerEnum {
+            SchedulerEnum::CurrentThread(exec) => exec.block_on(&self.runtimeHandle.schedulerHandleEnum, future),
             #[cfg(feature = "rt-multi-thread")]
-            Scheduler::MultiThread(exec) => exec.block_on(&self.handle.inner, future),
+            SchedulerEnum::MultiThread(exec) => exec.block_on(&self.runtimeHandle.schedulerHandleEnum, future),
         }
     }
 
@@ -379,7 +377,7 @@ impl Runtime {
     /// }
     /// ```
     pub fn enter(&self) -> EnterGuard<'_> {
-        self.handle.enter()
+        self.runtimeHandle.enter()
     }
 
     /// Shuts down the runtime, waiting for at most `duration` for all spawned
@@ -410,7 +408,7 @@ impl Runtime {
     /// ```
     pub fn shutdown_timeout(mut self, duration: Duration) {
         // Wakeup and shutdown all the worker threads
-        self.handle.inner.shutdown();
+        self.runtimeHandle.schedulerHandleEnum.shutdown();
         self.blocking_pool.shutdown(Some(duration));
     }
 
@@ -449,31 +447,31 @@ impl Runtime {
     /// Returns a view that lets you get information about how the runtime
     /// is performing.
     pub fn metrics(&self) -> crate::runtime::RuntimeMetrics {
-        self.handle.metrics()
+        self.runtimeHandle.metrics()
     }
 }
 
 #[allow(clippy::single_match)] // there are comments in the error branch, so we don't want if-let
 impl Drop for Runtime {
     fn drop(&mut self) {
-        match &mut self.scheduler {
-            Scheduler::CurrentThread(current_thread) => {
+        match &mut self.schedulerEnum {
+            SchedulerEnum::CurrentThread(current_thread) => {
                 // This ensures that tasks spawned on the current-thread
                 // runtime are dropped inside the runtime's context.
-                let _guard = context::try_set_current(&self.handle.inner);
-                current_thread.shutdown(&self.handle.inner);
+                let _guard = context::trySetCurrentSchedulerHandleEnum(&self.runtimeHandle.schedulerHandleEnum);
+                current_thread.shutdown(&self.runtimeHandle.schedulerHandleEnum);
             }
             #[cfg(feature = "rt-multi-thread")]
-            Scheduler::MultiThread(multi_thread) => {
+            SchedulerEnum::MultiThread(multi_thread) => {
                 // The threaded scheduler drops its tasks on its worker threads, which is
                 // already in the runtime's context.
-                multi_thread.shutdown(&self.handle.inner);
+                multi_thread.shutdown(&self.runtimeHandle.schedulerHandleEnum);
             }
             #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            Scheduler::MultiThreadAlt(multi_thread) => {
+            SchedulerEnum::MultiThreadAlt(multi_thread) => {
                 // The threaded scheduler drops its tasks on its worker threads, which is
                 // already in the runtime's context.
-                multi_thread.shutdown(&self.handle.inner);
+                multi_thread.shutdown(&self.runtimeHandle.schedulerHandleEnum);
             }
         }
     }

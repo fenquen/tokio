@@ -287,14 +287,6 @@ feature! {
     pub use self::symlink::symlink;
 }
 
-cfg_windows! {
-    mod symlink_dir;
-    pub use self::symlink_dir::symlink_dir;
-
-    mod symlink_file;
-    pub use self::symlink_file::symlink_file;
-}
-
 use std::io;
 
 #[cfg(not(test))]

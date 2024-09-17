@@ -17,7 +17,7 @@ pub(crate) struct Parker {
     inner: Arc<Inner>,
 }
 
-pub(crate) struct Unparker {
+pub(crate) struct UnParker {
     inner: Arc<Inner>,
 }
 
@@ -60,8 +60,8 @@ impl Parker {
         }
     }
 
-    pub(crate) fn unpark(&self) -> Unparker {
-        Unparker {
+    pub(crate) fn unpark(&self) -> UnParker {
+        UnParker {
             inner: self.inner.clone(),
         }
     }
@@ -104,7 +104,7 @@ impl Clone for Parker {
     }
 }
 
-impl Unparker {
+impl UnParker {
     pub(crate) fn unpark(&self, driver: &driver::DriverHandle) {
         self.inner.unpark(driver);
     }

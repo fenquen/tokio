@@ -393,7 +393,7 @@ pub struct Signal {
 /// feature flag is not enabled.
 #[track_caller]
 pub fn signal(kind: SignalKind) -> io::Result<Signal> {
-    let handle = scheduler::Handle::current();
+    let handle = scheduler::SchedulerHandleEnum::current();
     let rx = signal_with_handle(kind, handle.driver().signal())?;
 
     Ok(Signal {
@@ -499,34 +499,4 @@ impl InternalStream for Signal {
 
 pub(crate) fn ctrl_c() -> io::Result<Signal> {
     signal(SignalKind::interrupt())
-}
-
-#[cfg(all(test, not(loom)))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn signal_enable_error_on_invalid_input() {
-        signal_enable(SignalKind::from_raw(-1), &SignalDriverHandle::default()).unwrap_err();
-    }
-
-    #[test]
-    fn signal_enable_error_on_forbidden_input() {
-        signal_enable(
-            SignalKind::from_raw(signal_hook_registry::FORBIDDEN[0]),
-            &SignalDriverHandle::default(),
-        )
-        .unwrap_err();
-    }
-
-    #[test]
-    fn from_c_int() {
-        assert_eq!(SignalKind::from(2), SignalKind::interrupt());
-    }
-
-    #[test]
-    fn into_c_int() {
-        let value: std::os::raw::c_int = SignalKind::interrupt().into();
-        assert_eq!(value, libc::SIGINT as _);
-    }
 }

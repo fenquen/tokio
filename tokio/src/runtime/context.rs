@@ -11,7 +11,7 @@ cfg_rt! {
     pub(crate) use blocking::{disallow_block_in_place, try_enter_blocking_region, BlockingRegionGuard};
 
     mod current;
-    pub(crate) use current::{with_current, try_set_current, SetCurrentGuard};
+    pub(crate) use current::{with_current, trySetCurrentSchedulerHandleEnum, SetCurrentGuard};
 
     mod runtime;
     pub(crate) use runtime::{EnterRuntime, enter_runtime};
@@ -40,7 +40,7 @@ struct Context {
 
     /// Handle to the runtime scheduler running on the current thread.
     #[cfg(feature = "rt")]
-    current: current::HandleCell,
+    currentSchedulerHandleEnumCell: current::SchedulerHandleEnumCell,
 
     /// Handle to the scheduler's internal "context"
     #[cfg(feature = "rt")]
@@ -62,18 +62,9 @@ struct Context {
 
     /// Tracks the amount of "work" a task may still do before yielding back to the scheduler
     budget: Cell<coop::Budget>,
-
-    #[cfg(all(
-        tokio_unstable,
-        tokio_taskdump,
-        feature = "rt",
-        target_os = "linux",
-        any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-    ))]
-    trace: trace::Context,
 }
 
-tokio_thread_local! {
+thread_local! {
     static CONTEXT: Context = const {
         Context {
             #[cfg(feature = "rt")]
@@ -82,7 +73,7 @@ tokio_thread_local! {
             // Tracks the current runtime handle to use when spawning,
             // accessing drivers, etc...
             #[cfg(feature = "rt")]
-            current: current::HandleCell::new(),
+            currentSchedulerHandleEnumCell: current::SchedulerHandleEnumCell::new(),
 
             // Tracks the current scheduler internal context
             #[cfg(feature = "rt")]
@@ -103,28 +94,11 @@ tokio_thread_local! {
             rng: Cell::new(None),
 
             budget: Cell::new(coop::Budget::unconstrained()),
-
-            #[cfg(all(
-                tokio_unstable,
-                tokio_taskdump,
-                feature = "rt",
-                target_os = "linux",
-                any(
-                    target_arch = "aarch64",
-                    target_arch = "x86",
-                    target_arch = "x86_64"
-                )
-            ))]
-            trace: trace::Context::new(),
         }
     }
 }
 
-#[cfg(any(
-    feature = "time",
-    feature = "macros",
-    all(feature = "sync", feature = "rt")
-))]
+#[cfg(any(feature = "time", feature = "macros", all(feature = "sync", feature = "rt")))]
 pub(crate) fn thread_rng_n(n: u32) -> u32 {
     CONTEXT.with(|ctx| {
         let mut rng = ctx.rng.get().unwrap_or_else(FastRand::new);
@@ -182,8 +156,7 @@ cfg_rt! {
     #[track_caller]
     pub(super) fn with_scheduler<R>(f: impl FnOnce(Option<&scheduler::Context>) -> R) -> R {
         let mut f = Some(f);
-        CONTEXT.try_with(|c| c.scheduler.with(f.take().unwrap()))
-            .unwrap_or_else(|_| (f.take().unwrap())(None))
+        CONTEXT.try_with(|c| c.scheduler.with(f.take().unwrap())).unwrap_or_else(|_| (f.take().unwrap())(None))
     }
 
     cfg_taskdump! {

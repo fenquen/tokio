@@ -10,23 +10,11 @@
 //!
 //! # Examples
 //!
-//! Print on "ctrl-c" notification.
-//!
-//! ```rust,no_run
-//! use tokio::signal;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     signal::ctrl_c().await?;
-//!     println!("ctrl-c received!");
-//!     Ok(())
-//! }
-//! ```
 //!
 //! Wait for `SIGHUP` on Unix
 //!
 //! ```rust,no_run
-//! # #[cfg(unix)] {
+//!
 //! use tokio::signal::unix::{signal, SignalKind};
 //!
 //! #[tokio::main]
@@ -40,15 +28,9 @@
 //!         println!("got signal HUP");
 //!     }
 //! }
-//! # }
 //! ```
 use crate::sync::watch::Receiver;
 use std::task::{Context, Poll};
-
-#[cfg(feature = "signal")]
-mod ctrl_c;
-#[cfg(feature = "signal")]
-pub use ctrl_c::ctrl_c;
 
 pub(crate) mod registry;
 
@@ -58,7 +40,6 @@ mod os {
 }
 
 pub mod unix;
-pub mod windows;
 
 mod reusable_box;
 use self::reusable_box::ReusableBoxFuture;

@@ -6,7 +6,7 @@ use std::fmt;
 use std::future::Future;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::marker::PhantomData;
-use tokio::runtime::Handle;
+use tokio::runtime::RuntimeHandle;
 use tokio::task::{AbortHandle, Id, JoinError, JoinSet, LocalSet};
 
 /// A collection of tasks spawned on a Tokio runtime, associated with hash map
@@ -307,7 +307,7 @@ where
     ///
     /// [`join_next`]: Self::join_next
     #[track_caller]
-    pub fn spawn_on<F>(&mut self, key: K, task: F, handle: &Handle)
+    pub fn spawn_on<F>(&mut self, key: K, task: F, handle: &RuntimeHandle)
     where
         F: Future<Output = V>,
         F: Send + 'static,
@@ -361,7 +361,7 @@ where
     ///
     /// [`join_next`]: Self::join_next
     #[track_caller]
-    pub fn spawn_blocking_on<F>(&mut self, key: K, f: F, handle: &Handle)
+    pub fn spawn_blocking_on<F>(&mut self, key: K, f: F, handle: &RuntimeHandle)
     where
         F: FnOnce() -> V,
         F: Send + 'static,

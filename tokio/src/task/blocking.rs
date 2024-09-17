@@ -54,11 +54,11 @@ cfg_rt_multi_thread! {
     ///
     /// ```
     /// use tokio::task;
-    /// use tokio::runtime::Handle;
+    /// use tokio::runtime::RuntimeHandle;
     ///
     /// # async fn docs() {
     /// task::block_in_place(move || {
-    ///     Handle::current().block_on(async move {
+    ///     RuntimeHandle::current().block_on(async move {
     ///         // do something async
     ///     });
     /// });

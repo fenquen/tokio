@@ -1,8 +1,8 @@
-use super::Handle;
+use super::MultiThreadSchedulerHandle;
 
 use crate::runtime::Dump;
 
-impl Handle {
+impl MultiThreadSchedulerHandle {
     pub(crate) async fn dump(&self) -> Dump {
         let trace_status = &self.shared.trace_status;
 

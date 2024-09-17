@@ -11,8 +11,8 @@ use crate::runtime::{context, scheduler, RuntimeFlavor, RuntimeMetrics};
 #[derive(Debug, Clone)]
 // When the `rt` feature is *not* enabled, this type is still defined, but not
 // included in the public API.
-pub struct Handle {
-    pub(crate) inner: scheduler::Handle,
+pub struct RuntimeHandle {
+    pub(crate) schedulerHandleEnum: SchedulerHandleEnum,
 }
 
 use crate::runtime::task::JoinHandle;
@@ -22,10 +22,11 @@ use crate::util::error::{CONTEXT_MISSING_ERROR, THREAD_LOCAL_DESTROYED_ERROR};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::{error, fmt};
+use crate::runtime::scheduler::SchedulerHandleEnum;
 
 /// Runtime context guard.
 ///
-/// Returned by [`Runtime::enter`] and [`Handle::enter`], the context guard exits
+/// Returned by [`Runtime::enter`] and [`RuntimeHandle::enter`], the context guard exits
 /// the runtime context on drop.
 ///
 /// [`Runtime::enter`]: fn@crate::runtime::Runtime::enter
@@ -33,14 +34,14 @@ use std::{error, fmt};
 #[must_use = "Creating and dropping a guard does nothing"]
 pub struct EnterGuard<'a> {
     _guard: context::SetCurrentGuard,
-    _handle_lifetime: PhantomData<&'a Handle>,
+    _handle_lifetime: PhantomData<&'a RuntimeHandle>,
 }
 
-impl Handle {
+impl RuntimeHandle {
     /// Enters the runtime context. This allows you to construct types that must
     /// have an executor available on creation such as [`Sleep`] or
     /// [`TcpStream`]. It will also allow you to call methods such as
-    /// [`tokio::spawn`] and [`Handle::current`] without panicking.
+    /// [`tokio::spawn`] and [`RuntimeHandle::current`] without panicking.
     ///
     /// # Panics
     ///
@@ -61,8 +62,7 @@ impl Handle {
     /// });
     /// ```
     ///
-    /// Do **not** do the following, this shows a scenario that will result in a
-    /// panic and possible memory leak.
+    /// Do **not** do the following, this shows a scenario that will result in a panic and possible memory leak.
     ///
     /// ```should_panic
     /// use tokio::runtime::Runtime;
@@ -82,62 +82,18 @@ impl Handle {
     /// [`tokio::spawn`]: fn@crate::spawn
     pub fn enter(&self) -> EnterGuard<'_> {
         EnterGuard {
-            _guard: match context::try_set_current(&self.inner) {
+            _guard: match context::trySetCurrentSchedulerHandleEnum(&self.schedulerHandleEnum) {
                 Some(guard) => guard,
-                None => panic!("{}", crate::util::error::THREAD_LOCAL_DESTROYED_ERROR),
+                None => panic!("{}", THREAD_LOCAL_DESTROYED_ERROR),
             },
             _handle_lifetime: PhantomData,
         }
     }
 
-    /// Returns a `Handle` view over the currently running `Runtime`.
-    ///
-    /// # Panics
-    ///
-    /// This will panic if called outside the context of a Tokio runtime. That means that you must
-    /// call this on one of the threads **being run by the runtime**, or from a thread with an active
-    /// `EnterGuard`. Calling this from within a thread created by `std::thread::spawn` (for example)
-    /// will cause a panic unless that thread has an active `EnterGuard`.
-    ///
-    /// # Examples
-    ///
-    /// This can be used to obtain the handle of the surrounding runtime from an async
-    /// block or function running on that runtime.
-    ///
-    /// ```
-    /// # use std::thread;
-    /// # use tokio::runtime::Runtime;
-    /// # fn dox() {
-    /// # let rt = Runtime::new().unwrap();
-    /// # rt.spawn(async {
-    /// use tokio::runtime::Handle;
-    ///
-    /// // Inside an async block or function.
-    /// let handle = Handle::current();
-    /// handle.spawn(async {
-    ///     println!("now running in the existing Runtime");
-    /// });
-    ///
-    /// # let handle =
-    /// thread::spawn(move || {
-    ///     // Notice that the handle is created outside of this thread and then moved in
-    ///     handle.spawn(async { /* ... */ });
-    ///     // This next line would cause a panic because we haven't entered the runtime
-    ///     // and created an EnterGuard
-    ///     // let handle2 = Handle::current(); // panic
-    ///     // So we create a guard here with Handle::enter();
-    ///     let _guard = handle.enter();
-    ///     // Now we can call Handle::current();
-    ///     let handle2 = Handle::current();
-    /// });
-    /// # handle.join().unwrap();
-    /// # });
-    /// # }
-    /// ```
     #[track_caller]
     pub fn current() -> Self {
-        Handle {
-            inner: scheduler::Handle::current(),
+        RuntimeHandle {
+            schedulerHandleEnum: SchedulerHandleEnum::current(),
         }
     }
 
@@ -147,8 +103,8 @@ impl Handle {
     ///
     /// Contrary to `current`, this never panics
     pub fn try_current() -> Result<Self, TryCurrentError> {
-        context::with_current(|inner| Handle {
-            inner: inner.clone(),
+        context::with_current(|inner| RuntimeHandle {
+            schedulerHandleEnum: inner.clone(),
         })
     }
 
@@ -220,7 +176,7 @@ impl Handle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.inner.blocking_spawner().spawn_blocking(self, func)
+        self.schedulerHandleEnum.getBlockingSpawner().spawnBlocking(self, func)
     }
 
     /// Runs a future to completion on this `Handle`'s associated `Runtime`.
@@ -270,11 +226,11 @@ impl Handle {
     /// Or using `Handle::current`:
     ///
     /// ```
-    /// use tokio::runtime::Handle;
+    /// use tokio::runtime::RuntimeHandle;
     ///
     /// #[tokio::main]
     /// async fn main () {
-    ///     let handle = Handle::current();
+    ///     let handle = RuntimeHandle::current();
     ///     std::thread::spawn(move || {
     ///         // Using Handle::block_on to run async code in the new thread.
     ///         handle.block_on(async {
@@ -304,22 +260,9 @@ impl Handle {
 
     #[track_caller]
     fn block_on_inner<F: Future>(&self, future: F) -> F::Output {
-        #[cfg(all(
-            tokio_unstable,
-            tokio_taskdump,
-            feature = "rt",
-            target_os = "linux",
-            any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-        ))]
-        let future = super::task::trace::Trace::root(future);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let future =
-            crate::util::trace::task(future, "block_on", None, super::task::Id::next().as_u64());
-
         // Enter the runtime context. This sets the current driver handles and
         // prevents blocking an existing runtime.
-        context::enter_runtime(&self.inner, true, |blocking| {
+        context::enter_runtime(&self.schedulerHandleEnum, true, |blocking| {
             blocking.block_on(future).expect("failed to park thread")
         })
     }
@@ -331,17 +274,7 @@ impl Handle {
         F::Output: Send + 'static,
     {
         let id = crate::runtime::task::Id::next();
-        #[cfg(all(
-            tokio_unstable,
-            tokio_taskdump,
-            feature = "rt",
-            target_os = "linux",
-            any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-        ))]
-        let future = super::task::trace::Trace::root(future);
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let future = crate::util::trace::task(future, "task", _name, id.as_u64());
-        self.inner.spawn(future, id)
+        self.schedulerHandleEnum.spawn(future, id)
     }
 
     /// Returns the flavor of the current `Runtime`.
@@ -349,61 +282,29 @@ impl Handle {
     /// # Examples
     ///
     /// ```
-    /// use tokio::runtime::{Handle, RuntimeFlavor};
+    /// use tokio::runtime::{RuntimeHandle, RuntimeFlavor};
     ///
     /// #[tokio::main(flavor = "current_thread")]
     /// async fn main() {
-    ///   assert_eq!(RuntimeFlavor::CurrentThread, Handle::current().runtime_flavor());
+    ///   assert_eq!(RuntimeFlavor::CurrentThread, RuntimeHandle::current().runtime_flavor());
     /// }
     /// ```
     ///
     /// ```
-    /// use tokio::runtime::{Handle, RuntimeFlavor};
+    /// use tokio::runtime::{RuntimeHandle, RuntimeFlavor};
     ///
     /// #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
     /// async fn main() {
-    ///   assert_eq!(RuntimeFlavor::MultiThread, Handle::current().runtime_flavor());
+    ///   assert_eq!(RuntimeFlavor::MultiThread, RuntimeHandle::current().runtime_flavor());
     /// }
     /// ```
     pub fn runtime_flavor(&self) -> RuntimeFlavor {
-        match self.inner {
-            scheduler::Handle::CurrentThread(_) => RuntimeFlavor::CurrentThread,
+        match self.schedulerHandleEnum {
+            scheduler::SchedulerHandleEnum::CurrentThread(_) => RuntimeFlavor::CurrentThread,
             #[cfg(feature = "rt-multi-thread")]
-            scheduler::Handle::MultiThread(_) => RuntimeFlavor::MultiThread,
+            scheduler::SchedulerHandleEnum::MultiThread(_) => RuntimeFlavor::MultiThread,
             #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            scheduler::Handle::MultiThreadAlt(_) => RuntimeFlavor::MultiThreadAlt,
-        }
-    }
-
-    cfg_unstable! {
-        /// Returns the [`Id`] of the current `Runtime`.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// use tokio::runtime::Handle;
-        ///
-        /// #[tokio::main(flavor = "current_thread")]
-        /// async fn main() {
-        ///   println!("Current runtime id: {}", Handle::current().id());
-        /// }
-        /// ```
-        ///
-        /// **Note**: This is an [unstable API][unstable]. The public API of this type
-        /// may break in 1.x releases. See [the documentation on unstable
-        /// features][unstable] for details.
-        ///
-        /// [unstable]: crate#unstable-features
-        /// [`Id`]: struct@crate::runtime::Id
-        pub fn id(&self) -> runtime::Id {
-            let owned_id = match &self.inner {
-                scheduler::Handle::CurrentThread(handle) => handle.owned_id(),
-                #[cfg(feature = "rt-multi-thread")]
-                scheduler::Handle::MultiThread(handle) => handle.owned_id(),
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                scheduler::Handle::MultiThreadAlt(handle) => handle.owned_id(),
-            };
-            owned_id.into()
+            scheduler::SchedulerHandleEnum::MultiThreadAlt(_) => RuntimeFlavor::MultiThreadAlt,
         }
     }
 
@@ -411,171 +312,6 @@ impl Handle {
     /// is performing.
     pub fn metrics(&self) -> RuntimeMetrics {
         RuntimeMetrics::new(self.clone())
-    }
-}
-
-cfg_taskdump! {
-    impl Handle {
-        /// Captures a snapshot of the runtime's state.
-        ///
-        /// This functionality is experimental, and comes with a number of
-        /// requirements and limitations.
-        ///
-        /// # Examples
-        ///
-        /// This can be used to get call traces of each task in the runtime.
-        /// Calls to `Handle::dump` should usually be enclosed in a
-        /// [timeout][crate::time::timeout], so that dumping does not escalate a
-        /// single blocked runtime thread into an entirely blocked runtime.
-        ///
-        /// ```
-        /// # use tokio::runtime::Runtime;
-        /// # fn dox() {
-        /// # let rt = Runtime::new().unwrap();
-        /// # rt.spawn(async {
-        /// use tokio::runtime::Handle;
-        /// use tokio::time::{timeout, Duration};
-        ///
-        /// // Inside an async block or function.
-        /// let handle = Handle::current();
-        /// if let Ok(dump) = timeout(Duration::from_secs(2), handle.dump()).await {
-        ///     for (i, task) in dump.tasks().iter().enumerate() {
-        ///         let trace = task.trace();
-        ///         println!("TASK {i}:");
-        ///         println!("{trace}\n");
-        ///     }
-        /// }
-        /// # });
-        /// # }
-        /// ```
-        ///
-        /// This produces highly detailed traces of tasks; e.g.:
-        ///
-        /// ```plain
-        /// TASK 0:
-        /// ╼ dump::main::{{closure}}::a::{{closure}} at /tokio/examples/dump.rs:18:20
-        /// └╼ dump::main::{{closure}}::b::{{closure}} at /tokio/examples/dump.rs:23:20
-        ///    └╼ dump::main::{{closure}}::c::{{closure}} at /tokio/examples/dump.rs:28:24
-        ///       └╼ tokio::sync::barrier::Barrier::wait::{{closure}} at /tokio/tokio/src/sync/barrier.rs:129:10
-        ///          └╼ <tokio::util::trace::InstrumentedAsyncOp<F> as core::future::future::Future>::poll at /tokio/tokio/src/util/trace.rs:77:46
-        ///             └╼ tokio::sync::barrier::Barrier::wait_internal::{{closure}} at /tokio/tokio/src/sync/barrier.rs:183:36
-        ///                └╼ tokio::sync::watch::Receiver<T>::changed::{{closure}} at /tokio/tokio/src/sync/watch.rs:604:55
-        ///                   └╼ tokio::sync::watch::changed_impl::{{closure}} at /tokio/tokio/src/sync/watch.rs:755:18
-        ///                      └╼ <tokio::sync::notify::Notified as core::future::future::Future>::poll at /tokio/tokio/src/sync/notify.rs:1103:9
-        ///                         └╼ tokio::sync::notify::Notified::poll_notified at /tokio/tokio/src/sync/notify.rs:996:32
-        /// ```
-        ///
-        /// # Requirements
-        ///
-        /// ## Debug Info Must Be Available
-        ///
-        /// To produce task traces, the application must **not** be compiled
-        /// with `split debuginfo`. On Linux, including `debuginfo` within the
-        /// application binary is the (correct) default. You can further ensure
-        /// this behavior with the following directive in your `Cargo.toml`:
-        ///
-        /// ```toml
-        /// [profile.*]
-        /// split-debuginfo = "off"
-        /// ```
-        ///
-        /// ## Unstable Features
-        ///
-        /// This functionality is **unstable**, and requires both the
-        /// `tokio_unstable` and `tokio_taskdump` `cfg` flags to be set.
-        ///
-        /// You can do this by setting the `RUSTFLAGS` environment variable
-        /// before invoking `cargo`; e.g.:
-        /// ```bash
-        /// RUSTFLAGS="--cfg tokio_unstable --cfg tokio_taskdump" cargo run --example dump
-        /// ```
-        ///
-        /// Or by [configuring][cargo-config] `rustflags` in
-        /// `.cargo/config.toml`:
-        /// ```text
-        /// [build]
-        /// rustflags = ["--cfg", "tokio_unstable", "--cfg", "tokio_taskdump"]
-        /// ```
-        ///
-        /// [cargo-config]:
-        ///     https://doc.rust-lang.org/cargo/reference/config.html
-        ///
-        /// ## Platform Requirements
-        ///
-        /// Task dumps are supported on Linux atop `aarch64`, `x86` and `x86_64`.
-        ///
-        /// ## Current Thread Runtime Requirements
-        ///
-        /// On the `current_thread` runtime, task dumps may only be requested
-        /// from *within* the context of the runtime being dumped. Do not, for
-        /// example, await `Handle::dump()` on a different runtime.
-        ///
-        /// # Limitations
-        ///
-        /// ## Performance
-        ///
-        /// Although enabling the `tokio_taskdump` feature imposes virtually no
-        /// additional runtime overhead, actually calling `Handle::dump` is
-        /// expensive. The runtime must synchronize and pause its workers, then
-        /// re-poll every task in a special tracing mode. Avoid requesting dumps
-        /// often.
-        ///
-        /// ## Local Executors
-        ///
-        /// Tasks managed by local executors (e.g., `FuturesUnordered` and
-        /// [`LocalSet`][crate::task::LocalSet]) may not appear in task dumps.
-        ///
-        /// ## Non-Termination When Workers Are Blocked
-        ///
-        /// The future produced by `Handle::dump` may never produce `Ready` if
-        /// another runtime worker is blocked for more than 250ms. This may
-        /// occur if a dump is requested during shutdown, or if another runtime
-        /// worker is infinite looping or synchronously deadlocked. For these
-        /// reasons, task dumping should usually be paired with an explicit
-        /// [timeout][crate::time::timeout].
-        pub async fn dump(&self) -> crate::runtime::Dump {
-            match &self.inner {
-                scheduler::Handle::CurrentThread(handle) => handle.dump(),
-                #[cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))]
-                scheduler::Handle::MultiThread(handle) => {
-                    // perform the trace in a separate thread so that the
-                    // trace itself does not appear in the taskdump.
-                    let handle = handle.clone();
-                    spawn_thread(async {
-                        let handle = handle;
-                        handle.dump().await
-                    }).await
-                },
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread", not(target_os = "wasi")))]
-                scheduler::Handle::MultiThreadAlt(_) => panic!("task dump not implemented for this runtime flavor"),
-            }
-        }
-
-        /// Produces `true` if the current task is being traced for a dump;
-        /// otherwise false. This function is only public for integration
-        /// testing purposes. Do not rely on it.
-        #[doc(hidden)]
-        pub fn is_tracing() -> bool {
-            super::task::trace::Context::is_tracing()
-        }
-    }
-
-    cfg_rt_multi_thread! {
-        /// Spawn a new thread and asynchronously await on its result.
-        async fn spawn_thread<F>(f: F) -> <F as Future>::Output
-        where
-            F: Future + Send + 'static,
-            <F as Future>::Output: Send + 'static
-        {
-            let (tx, rx) = crate::sync::oneshot::channel();
-            crate::loom::thread::spawn(|| {
-                let rt = crate::runtime::Builder::new_current_thread().build().unwrap();
-                rt.block_on(async {
-                    let _ = tx.send(f.await);
-                });
-            });
-            rx.await.unwrap()
-        }
     }
 }
 

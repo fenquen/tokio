@@ -103,7 +103,7 @@
 //! [`UnboundedSender`]: crate::sync::mpsc::UnboundedSender
 //! [`UnboundedReceiver`]: crate::sync::mpsc::UnboundedReceiver
 //! [oneshot]: crate::sync::oneshot
-//! [`Handle::block_on`]: crate::runtime::Handle::block_on()
+//! [`Handle::block_on`]: crate::runtime::RuntimeHandle::block_on()
 //! [std-unbounded]: std::sync::mpsc::channel
 //! [crossbeam-unbounded]: https://docs.rs/crossbeam/*/crossbeam/channel/fn.unbounded.html
 //! [`send_timeout`]: crate::sync::mpsc::Sender::send_timeout

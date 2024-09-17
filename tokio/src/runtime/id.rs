@@ -16,11 +16,11 @@ use std::num::{NonZeroU32, NonZeroU64};
 /// # Examples
 ///
 /// ```
-/// use tokio::runtime::Handle;
+/// use tokio::runtime::RuntimeHandle;
 ///
 /// #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 /// async fn main() {
-///   println!("Current runtime id: {}", Handle::current().id());
+///   println!("Current runtime id: {}", RuntimeHandle::current().id());
 /// }
 /// ```
 ///

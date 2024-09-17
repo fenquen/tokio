@@ -110,14 +110,14 @@ impl<E: Source> PollEvented<E> {
     #[track_caller]
     #[cfg_attr(feature = "signal", allow(unused))]
     pub(crate) fn new_with_interest(io: E, interest: Interest) -> io::Result<Self> {
-        Self::new_with_interest_and_handle(io, interest, scheduler::Handle::current())
+        Self::new_with_interest_and_handle(io, interest, scheduler::SchedulerHandleEnum::current())
     }
 
     #[track_caller]
     pub(crate) fn new_with_interest_and_handle(
         mut io: E,
         interest: Interest,
-        handle: scheduler::Handle,
+        handle: scheduler::SchedulerHandleEnum,
     ) -> io::Result<Self> {
         let registration = Registration::new_with_interest_and_handle(&mut io, interest, handle)?;
         Ok(Self {
@@ -154,7 +154,7 @@ impl<E: Source> PollEvented<E> {
         let io = self.io.as_mut().unwrap(); // As io shouldn't ever be None, just unwrap here.
         let _ = self.registration.deregister(io);
         self.registration =
-            Registration::new_with_interest_and_handle(io, interest, scheduler::Handle::current())?;
+            Registration::new_with_interest_and_handle(io, interest, scheduler::SchedulerHandleEnum::current())?;
 
         Ok(())
     }

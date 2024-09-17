@@ -32,7 +32,7 @@ pub(crate) struct EnterRuntimeGuard {
 /// Marks the current thread as being within the dynamic extent of an
 /// executor.
 #[track_caller]
-pub(crate) fn enter_runtime<F, R>(handle: &scheduler::Handle, allow_block_in_place: bool, f: F) -> R
+pub(crate) fn enter_runtime<F, R>(handle: &scheduler::SchedulerHandleEnum, allow_block_in_place: bool, f: F) -> R
 where
     F: FnOnce(&mut BlockingRegionGuard) -> R,
 {

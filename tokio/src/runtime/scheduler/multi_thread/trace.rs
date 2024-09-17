@@ -1,7 +1,7 @@
 use crate::loom::sync::atomic::{AtomicBool, Ordering};
 use crate::loom::sync::{Barrier, Mutex};
 use crate::runtime::dump::Dump;
-use crate::runtime::scheduler::multi_thread::Handle;
+use crate::runtime::scheduler::multi_thread::MultiThreadSchedulerHandle;
 use crate::sync::notify::Notify;
 
 /// Tracing status of the worker.
@@ -28,7 +28,7 @@ impl TraceStatus {
         self.trace_requested.load(Ordering::Relaxed)
     }
 
-    pub(super) async fn start_trace_request(&self, handle: &Handle) {
+    pub(super) async fn start_trace_request(&self, handle: &MultiThreadSchedulerHandle) {
         while self
             .trace_requested
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -48,7 +48,7 @@ impl TraceStatus {
         self.trace_result.lock().take()
     }
 
-    pub(super) async fn end_trace_request(&self, handle: &Handle) {
+    pub(super) async fn end_trace_request(&self, handle: &MultiThreadSchedulerHandle) {
         while self
             .trace_requested
             .compare_exchange(true, false, Ordering::Acquire, Ordering::Relaxed)

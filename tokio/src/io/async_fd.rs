@@ -241,13 +241,13 @@ impl<T: AsRawFd> AsyncFd<T> {
     where
         T: AsRawFd,
     {
-        Self::new_with_handle_and_interest(inner, scheduler::Handle::current(), interest)
+        Self::new_with_handle_and_interest(inner, scheduler::SchedulerHandleEnum::current(), interest)
     }
 
     #[track_caller]
     pub(crate) fn new_with_handle_and_interest(
         inner: T,
-        handle: scheduler::Handle,
+        handle: scheduler::SchedulerHandleEnum,
         interest: Interest,
     ) -> io::Result<Self> {
         Self::try_new_with_handle_and_interest(inner, handle, interest).map_err(Into::into)
@@ -295,13 +295,13 @@ impl<T: AsRawFd> AsyncFd<T> {
     where
         T: AsRawFd,
     {
-        Self::try_new_with_handle_and_interest(inner, scheduler::Handle::current(), interest)
+        Self::try_new_with_handle_and_interest(inner, scheduler::SchedulerHandleEnum::current(), interest)
     }
 
     #[track_caller]
     pub(crate) fn try_new_with_handle_and_interest(
         inner: T,
-        handle: scheduler::Handle,
+        handle: scheduler::SchedulerHandleEnum,
         interest: Interest,
     ) -> Result<Self, AsyncFdTryNewError<T>> {
         let fd = inner.as_raw_fd();

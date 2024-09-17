@@ -49,8 +49,8 @@ fn single_timer() {
         let handle_ = handle.clone();
         let jh = thread::spawn(move || {
             let entry = TimerEntry::new(
-                handle_.inner.clone(),
-                handle_.inner.driver().clock().now() + Duration::from_secs(1),
+                handle_.schedulerHandleEnum.clone(),
+                handle_.schedulerHandleEnum.driver().clock().now() + Duration::from_secs(1),
             );
             pin!(entry);
 
@@ -62,8 +62,8 @@ fn single_timer() {
 
         thread::yield_now();
 
-        let time = handle.inner.driver().time();
-        let clock = handle.inner.driver().clock();
+        let time = handle.schedulerHandleEnum.driver().time();
+        let clock = handle.schedulerHandleEnum.driver().clock();
 
         // This may or may not return Some (depending on how it races with the
         // thread). If it does return None, however, the timer should complete
@@ -83,8 +83,8 @@ fn drop_timer() {
         let handle_ = handle.clone();
         let jh = thread::spawn(move || {
             let entry = TimerEntry::new(
-                handle_.inner.clone(),
-                handle_.inner.driver().clock().now() + Duration::from_secs(1),
+                handle_.schedulerHandleEnum.clone(),
+                handle_.schedulerHandleEnum.driver().clock().now() + Duration::from_secs(1),
             );
             pin!(entry);
 
@@ -98,8 +98,8 @@ fn drop_timer() {
 
         thread::yield_now();
 
-        let time = handle.inner.driver().time();
-        let clock = handle.inner.driver().clock();
+        let time = handle.schedulerHandleEnum.driver().time();
+        let clock = handle.schedulerHandleEnum.driver().clock();
 
         // advance 2s in the future.
         time.process_at_time(0, time.time_source().now(clock) + 2_000_000_000);
@@ -117,8 +117,8 @@ fn change_waker() {
         let handle_ = handle.clone();
         let jh = thread::spawn(move || {
             let entry = TimerEntry::new(
-                handle_.inner.clone(),
-                handle_.inner.driver().clock().now() + Duration::from_secs(1),
+                handle_.schedulerHandleEnum.clone(),
+                handle_.schedulerHandleEnum.driver().clock().now() + Duration::from_secs(1),
             );
             pin!(entry);
 
@@ -134,8 +134,8 @@ fn change_waker() {
 
         thread::yield_now();
 
-        let time = handle.inner.driver().time();
-        let clock = handle.inner.driver().clock();
+        let time = handle.schedulerHandleEnum.driver().time();
+        let clock = handle.schedulerHandleEnum.driver().clock();
 
         // advance 2s
         time.process_at_time(0, time.time_source().now(clock) + 2_000_000_000);
@@ -154,10 +154,10 @@ fn reset_future() {
 
         let handle_ = handle.clone();
         let finished_early_ = finished_early.clone();
-        let start = handle.inner.driver().clock().now();
+        let start = handle.schedulerHandleEnum.driver().clock().now();
 
         let jh = thread::spawn(move || {
-            let entry = TimerEntry::new(handle_.inner.clone(), start + Duration::from_secs(1));
+            let entry = TimerEntry::new(handle_.schedulerHandleEnum.clone(), start + Duration::from_secs(1));
             pin!(entry);
 
             let _ = entry
@@ -177,7 +177,7 @@ fn reset_future() {
 
         thread::yield_now();
 
-        let handle = handle.inner.driver().time();
+        let handle = handle.schedulerHandleEnum.driver().time();
 
         // This may or may not return a wakeup time.
         handle.process_at_time(
@@ -221,8 +221,8 @@ fn poll_process_levels() {
 
     for i in 0..normal_or_miri(1024, 64) {
         let mut entry = Box::pin(TimerEntry::new(
-            handle.inner.clone(),
-            handle.inner.driver().clock().now() + Duration::from_millis(i),
+            handle.schedulerHandleEnum.clone(),
+            handle.schedulerHandleEnum.driver().clock().now() + Duration::from_millis(i),
         ));
 
         let _ = entry
@@ -233,7 +233,7 @@ fn poll_process_levels() {
     }
 
     for t in 1..normal_or_miri(1024, 64) {
-        handle.inner.driver().time().process_at_time(0, t as u64);
+        handle.schedulerHandleEnum.driver().time().process_at_time(0, t as u64);
 
         for (deadline, future) in entries.iter_mut().enumerate() {
             let mut context = Context::from_waker(noop_waker_ref());
@@ -255,12 +255,12 @@ fn poll_process_levels_targeted() {
     let handle = rt.handle();
 
     let e1 = TimerEntry::new(
-        handle.inner.clone(),
-        handle.inner.driver().clock().now() + Duration::from_millis(193),
+        handle.schedulerHandleEnum.clone(),
+        handle.schedulerHandleEnum.driver().clock().now() + Duration::from_millis(193),
     );
     pin!(e1);
 
-    let handle = handle.inner.driver().time();
+    let handle = handle.schedulerHandleEnum.driver().time();
 
     handle.process_at_time(0, 62);
     assert!(e1.as_mut().poll_elapsed(&mut context).is_pending());
@@ -274,7 +274,7 @@ fn instant_to_tick_max() {
     use crate::runtime::time::entry::MAX_SAFE_MILLIS_DURATION;
 
     let rt = rt(true);
-    let handle = rt.handle().inner.driver().time();
+    let handle = rt.handle().schedulerHandleEnum.driver().time();
 
     let start_time = handle.time_source.start_time();
     let long_future = start_time + std::time::Duration::from_millis(MAX_SAFE_MILLIS_DURATION + 1);

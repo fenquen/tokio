@@ -254,21 +254,21 @@ impl ScheduledIo {
     /// than 32 wakers to notify, if the stack array fills up, the lock is
     /// released, the array is cleared, and the iteration continues.
     pub(super) fn wake(&self, ready: Ready) {
-        let mut wakers = WakeList::new();
+        let mut wakerList = WakeList::new();
 
         let mut waiters = self.waiters.lock();
 
         // check for AsyncRead slot
         if ready.is_readable() {
             if let Some(waker) = waiters.reader.take() {
-                wakers.push(waker);
+                wakerList.push(waker);
             }
         }
 
         // check for AsyncWrite slot
         if ready.is_writable() {
             if let Some(waker) = waiters.writer.take() {
-                wakers.push(waker);
+                wakerList.push(waker);
             }
         }
 
@@ -276,14 +276,14 @@ impl ScheduledIo {
         loop {
             let mut iter = waiters.list.drain_filter(|w| ready.satisfies(w.interest));
 
-            while wakers.can_push() {
+            while wakerList.can_push() {
                 match iter.next() {
                     Some(waiter) => {
                         let waiter = unsafe { &mut *waiter.as_ptr() };
 
                         if let Some(waker) = waiter.waker.take() {
                             waiter.is_ready = true;
-                            wakers.push(waker);
+                            wakerList.push(waker);
                         }
                     }
                     None => {
@@ -294,7 +294,7 @@ impl ScheduledIo {
 
             drop(waiters);
 
-            wakers.wake_all();
+            wakerList.wake_all();
 
             // Acquire the lock again.
             waiters = self.waiters.lock();
@@ -303,7 +303,7 @@ impl ScheduledIo {
         // Release the lock before notifying
         drop(waiters);
 
-        wakers.wake_all();
+        wakerList.wake_all();
     }
 
     pub(super) fn ready_event(&self, interest: Interest) -> ReadyEvent {

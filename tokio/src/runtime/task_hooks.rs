@@ -18,18 +18,10 @@ pub(crate) struct TaskHooks {
 #[allow(missing_debug_implementations)]
 #[cfg_attr(not(tokio_unstable), allow(unreachable_pub))]
 pub struct TaskMeta<'a> {
-    /// The opaque ID of the task.
-    #[cfg(tokio_unstable)]
-    pub(crate) id: super::task::Id,
     pub(crate) _phantom: PhantomData<&'a ()>,
 }
 
 impl<'a> TaskMeta<'a> {
-    /// Return the opaque ID of the task.
-    #[cfg(tokio_unstable)]
-    pub fn id(&self) -> super::task::Id {
-        self.id
-    }
 }
 
 /// Runs on specific task-related events

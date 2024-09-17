@@ -387,7 +387,7 @@ cfg_rt! {
     pub(crate) use task_hooks::TaskMeta;
 
     mod handle;
-    pub use handle::{EnterGuard, Handle, TryCurrentError};
+    pub use handle::{EnterGuard, RuntimeHandle, TryCurrentError};
 
     mod runtime;
     pub use runtime::{Runtime, RuntimeFlavor};

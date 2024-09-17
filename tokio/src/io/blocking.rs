@@ -201,7 +201,7 @@ impl Buf {
         self.buf.len() - self.pos
     }
 
-    pub(crate) fn copy_to(&mut self, dst: &mut ReadBuf<'_>) -> usize {
+    pub fn copy_to(&mut self, dst: &mut ReadBuf<'_>) -> usize {
         let n = cmp::min(self.len(), dst.remaining());
         dst.put_slice(&self.bytes()[..n]);
         self.pos += n;
@@ -265,30 +265,32 @@ impl Buf {
     }
 }
 
-cfg_fs! {
-    impl Buf {
-        pub(crate) fn discard_read(&mut self) -> i64 {
-            let ret = -(self.bytes().len() as i64);
-            self.pos = 0;
-            self.buf.truncate(0);
-            ret
-        }
+#[cfg(feature = "fs")]
+#[cfg(not(target_os = "wasi"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
+impl Buf {
+    pub(crate) fn discard_read(&mut self) -> i64 {
+        let ret = -(self.bytes().len() as i64);
+        self.pos = 0;
+        self.buf.truncate(0);
+        ret
+    }
 
-        pub(crate) fn copy_from_bufs(&mut self, bufs: &[io::IoSlice<'_>], max_buf_size: usize) -> usize {
-            assert!(self.is_empty());
+    pub(crate) fn copy_from_bufs(&mut self, bufs: &[io::IoSlice<'_>], max_buf_size: usize) -> usize {
+        assert!(self.is_empty());
 
-            let mut rem = max_buf_size;
-            for buf in bufs {
-                if rem == 0 {
-                    break
-                }
-
-                let len = buf.len().min(rem);
-                self.buf.extend_from_slice(&buf[..len]);
-                rem -= len;
+        let mut rem = max_buf_size;
+        for buf in bufs {
+            if rem == 0 {
+                break;
             }
 
-            max_buf_size - rem
+            let len = buf.len().min(rem);
+            self.buf.extend_from_slice(&buf[..len]);
+            rem -= len;
         }
+
+        max_buf_size - rem
     }
 }
+

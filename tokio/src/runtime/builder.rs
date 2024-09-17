@@ -1,6 +1,6 @@
 #![cfg_attr(loom, allow(unused_imports))]
 
-use crate::runtime::handle::Handle;
+use crate::runtime::handle::RuntimeHandle;
 #[cfg(tokio_unstable)]
 use crate::runtime::TaskMeta;
 use crate::runtime::{blocking, driver, Callback, HistogramBuilder, Runtime, TaskCallback};
@@ -10,6 +10,7 @@ use std::fmt;
 use std::io;
 use std::time::Duration;
 use crate::runtime::blocking::BlockingPool;
+use crate::runtime::scheduler::SchedulerHandleEnum;
 
 /// ```
 /// use tokio::runtime::Builder;
@@ -518,7 +519,7 @@ impl Builder {
 
     fn build_current_thread_runtime(&mut self) -> io::Result<Runtime> {
         use crate::runtime::scheduler::{self, CurrentThread};
-        use crate::runtime::{runtime::Scheduler, Config};
+        use crate::runtime::{runtime::SchedulerEnum, Config};
 
         let (driver, driver_handle) = driver::Driver::new(self.get_cfg(1))?;
 
@@ -555,12 +556,12 @@ impl Builder {
             },
         );
 
-        let handle = Handle {
-            inner: scheduler::Handle::CurrentThread(handle),
+        let handle = RuntimeHandle {
+            schedulerHandleEnum: scheduler::SchedulerHandleEnum::CurrentThread(handle),
         };
 
         Ok(Runtime::from_parts(
-            Scheduler::CurrentThread(scheduler),
+            SchedulerEnum::CurrentThread(scheduler),
             handle,
             blocking_pool,
         ))
@@ -576,7 +577,10 @@ impl Builder {
 }
 
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "net", all(unix, feature = "process"), all(
+    unix,
+    feature = "signal"
+), ))))]
 impl Builder {
     /// Enables the I/O driver.
     pub fn enable_io(&mut self) -> &mut Self {
@@ -605,27 +609,27 @@ impl Builder {
 impl Builder {
     fn build_threaded_runtime(&mut self) -> io::Result<Runtime> {
         use crate::loom::sys::num_cpus;
-        use crate::runtime::{Config, runtime::Scheduler};
+        use crate::runtime::{Config, runtime::SchedulerEnum};
         use crate::runtime::scheduler::{self, MultiThread};
 
         let workerThreadCount = self.worker_threads.unwrap_or_else(num_cpus);
 
-        let (driver, driver_handle) = driver::Driver::new(self.get_cfg(workerThreadCount))?;
+        let (driver, driverHandle) = driver::Driver::new(self.get_cfg(workerThreadCount))?;
 
-        // Create the blocking pool
+        // create the blocking pool
         let blockingPool = BlockingPool::new(self, self.max_blocking_threads + workerThreadCount);
-        let blocking_spawner = blockingPool.spawner().clone();
+        let blockingSpawner = blockingPool.spawner().clone();
 
         // Generate a rng seed for this runtime.
         let seed_generator_1 = self.seed_generator.next_generator();
         let seed_generator_2 = self.seed_generator.next_generator();
 
-        let (multiThread, handle, launch) =
+        let (multiThread, multiThreadSchedulerHandle, launcher) =
             MultiThread::new(
                 workerThreadCount,
                 driver,
-                driver_handle,
-                blocking_spawner,
+                driverHandle,
+                blockingSpawner,
                 seed_generator_2,
                 Config {
                     before_park: self.before_park.clone(),
@@ -641,13 +645,16 @@ impl Builder {
                 },
             );
 
-        let handle = Handle { inner: scheduler::Handle::MultiThread(handle) };
+        let runtimeHandle = RuntimeHandle {
+            schedulerHandleEnum: SchedulerHandleEnum::MultiThread(multiThreadSchedulerHandle)
+        };
 
         // Spawn the thread pool workers
-        let _enter = handle.enter();
-        launch.launch();
+        let enter = runtimeHandle.enter();
 
-        Ok(Runtime::from_parts(Scheduler::MultiThread(multiThread), handle, blockingPool))
+        launcher.launch();
+
+        Ok(Runtime::from_parts(SchedulerEnum::MultiThread(multiThread), runtimeHandle, blockingPool))
     }
 }
 

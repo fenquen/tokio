@@ -47,7 +47,7 @@ cfg_io_driver! {
         /// Handle to the associated runtime.
         ///
         /// TODO: this can probably be moved into `ScheduledIo`.
-        handle: scheduler::Handle,
+        handle: scheduler::SchedulerHandleEnum,
 
         /// Reference to state stored by the driver.
         shared: Arc<ScheduledIo>,
@@ -73,7 +73,7 @@ impl Registration {
     pub(crate) fn new_with_interest_and_handle(
         io: &mut impl Source,
         interest: Interest,
-        handle: scheduler::Handle,
+        handle: scheduler::SchedulerHandleEnum,
     ) -> io::Result<Registration> {
         let shared = handle.driver().io().add_source(io, interest)?;
 

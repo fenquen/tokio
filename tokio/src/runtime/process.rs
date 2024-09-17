@@ -8,12 +8,12 @@ use std::time::Duration;
 
 /// Responsible for cleaning up orphaned child processes on Unix platforms.
 #[derive(Debug)]
-pub(crate) struct Driver {
+pub(crate) struct ProcessDriver {
     signalDriver: SignalDriver,
     signalDriverHandle: SignalDriverHandle,
 }
 
-impl Driver {
+impl ProcessDriver {
     /// Creates a new signal `Driver` instance that delegates wakeups to `park`.
     pub(crate) fn new(signalDriver: SignalDriver) -> Self {
         let signalDriverHandle = signalDriver.handle();

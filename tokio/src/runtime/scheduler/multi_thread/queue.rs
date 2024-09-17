@@ -133,7 +133,7 @@ impl<T> Local<T> {
     /// # Panics
     ///
     /// The method panics if there is not enough capacity to fit in the queue.
-    pub(crate) fn push_back(&mut self, tasks: impl ExactSizeIterator<Item = task::Notified<T>>) {
+    pub(crate) fn push_back(&mut self, tasks: impl ExactSizeIterator<Item=task::Notified<T>>) {
         let len = tasks.len();
         assert!(len <= LOCAL_QUEUE_CAPACITY);
 
@@ -391,11 +391,9 @@ impl<T> Steal<T> {
     }
 
     /// Steals half the tasks from self and place them into `dst`.
-    pub(crate) fn steal_into(
-        &self,
-        dst: &mut Local<T>,
-        dst_stats: &mut Stats,
-    ) -> Option<task::Notified<T>> {
+    pub(crate) fn steal_into(&self,
+                             dst: &mut Local<T>,
+                             dst_stats: &mut Stats) -> Option<task::Notified<T>> {
         // Safety: the caller is the only thread that mutates `dst.tail` and
         // holds a mutable reference.
         let dst_tail = unsafe { dst.inner.tail.unsync_load() };
@@ -411,12 +409,11 @@ impl<T> Steal<T> {
             return None;
         }
 
-        // Steal the tasks into `dst`'s buffer. This does not yet expose the
-        // tasks in `dst`.
+        // Steal the tasks into `dst`'s buffer. This does not yet expose the tasks in `dst`.
         let mut n = self.steal_into2(dst, dst_tail);
 
+        // No tasks were stolen
         if n == 0 {
-            // No tasks were stolen
             return None;
         }
 
@@ -433,8 +430,8 @@ impl<T> Steal<T> {
         // exposed to stealers, so no other thread can access it.
         let ret = dst.inner.buffer[ret_idx].with(|ptr| unsafe { ptr::read((*ptr).as_ptr()) });
 
+        // The `dst` queue is empty, but a single task was stolen
         if n == 0 {
-            // The `dst` queue is empty, but a single task was stolen
             return Some(ret);
         }
 
@@ -444,8 +441,7 @@ impl<T> Steal<T> {
         Some(ret)
     }
 
-    // Steal tasks from `self`, placing them into `dst`. Returns the number of
-    // tasks that were stolen.
+    // Steal tasks from `self`, placing them into `dst`. Returns the number of tasks that were stolen.
     fn steal_into2(&self, dst: &mut Local<T>, dst_tail: UnsignedShort) -> UnsignedShort {
         let mut prev_packed = self.0.head.load(Acquire);
         let mut next_packed;
@@ -488,11 +484,7 @@ impl<T> Steal<T> {
             }
         };
 
-        assert!(
-            n <= LOCAL_QUEUE_CAPACITY as UnsignedShort / 2,
-            "actual = {}",
-            n
-        );
+        assert!(n <= LOCAL_QUEUE_CAPACITY as UnsignedShort / 2, "actual = {}", n);
 
         let (first, _) = unpack(next_packed);
 
@@ -515,14 +507,12 @@ impl<T> Steal<T> {
             //
             // safety: `dst` queue is empty and we are the only producer to
             // this queue.
-            dst.inner.buffer[dst_idx]
-                .with_mut(|ptr| unsafe { ptr::write((*ptr).as_mut_ptr(), task) });
+            dst.inner.buffer[dst_idx].with_mut(|ptr| unsafe { ptr::write((*ptr).as_mut_ptr(), task) });
         }
 
         let mut prev_packed = next_packed;
 
-        // Update `src_head_steal` to match `src_head_real` signalling that the
-        // stealing routine is complete.
+        // Update `src_head_steal` to match `src_head_real` signalling that the stealing routine is complete.
         loop {
             let head = unpack(prev_packed).1;
             next_packed = pack(head, head);
@@ -542,14 +532,6 @@ impl<T> Steal<T> {
                     prev_packed = actual;
                 }
             }
-        }
-    }
-}
-
-cfg_unstable_metrics! {
-    impl<T> Steal<T> {
-        pub(crate) fn len(&self) -> usize {
-            self.0.len() as _
         }
     }
 }

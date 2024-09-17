@@ -1,4 +1,4 @@
-use super::{Core, Handle, Shared};
+use super::{Core, MultiThreadSchedulerHandle, Shared};
 
 use crate::loom::sync::Arc;
 use crate::runtime::scheduler::multi_thread::Stats;
@@ -7,7 +7,7 @@ use crate::runtime::{dump, WorkerMetrics};
 
 use std::time::Duration;
 
-impl Handle {
+impl MultiThreadSchedulerHandle {
     pub(super) fn trace_core(&self, mut core: Box<Core>) -> Box<Core> {
         core.is_traced = false;
 
@@ -59,7 +59,7 @@ impl Handle {
 
 impl Shared {
     /// Steal all tasks from remotes into a single local queue.
-    pub(super) fn steal_all(&self) -> super::queue::Local<Arc<Handle>> {
+    pub(super) fn steal_all(&self) -> super::queue::Local<Arc<MultiThreadSchedulerHandle>> {
         let (_steal, mut local) = super::queue::local();
 
         let worker_metrics = WorkerMetrics::new();

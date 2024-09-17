@@ -16,13 +16,12 @@ cfg_taskdump! {
     mod taskdump;
 }
 
-/// Handle to the multi thread scheduler
-pub(crate) struct Handle {
+pub(crate) struct MultiThreadSchedulerHandle {
     /// Task spawner
     pub(super) shared: worker::Shared,
 
     /// Resource driver handles
-    pub(crate) driver: driver::DriverHandle,
+    pub(crate) driverHandle: driver::DriverHandle,
 
     /// Blocking pool spawner
     pub(crate) blocking_spawner: blocking::Spawner,
@@ -34,7 +33,7 @@ pub(crate) struct Handle {
     pub(crate) task_hooks: TaskHooks,
 }
 
-impl Handle {
+impl MultiThreadSchedulerHandle {
     /// Spawns a future onto the thread pool
     pub(crate) fn spawn<F>(me: &Arc<Self>, future: F, id: task::Id) -> JoinHandle<F::Output>
     where
@@ -65,17 +64,7 @@ impl Handle {
     }
 }
 
-cfg_unstable! {
-    use std::num::NonZeroU64;
-
-    impl Handle {
-        pub(crate) fn owned_id(&self) -> NonZeroU64 {
-            self.shared.owned.id
-        }
-    }
-}
-
-impl fmt::Debug for Handle {
+impl fmt::Debug for MultiThreadSchedulerHandle {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("multi_thread::Handle { ... }").finish()
     }

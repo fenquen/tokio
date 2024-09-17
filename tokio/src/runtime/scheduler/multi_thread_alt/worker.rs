@@ -260,7 +260,7 @@ pub(super) fn create(
     blocking_spawner: blocking::Spawner,
     seed_generator: RngSeedGenerator,
     config: Config,
-) -> runtime::Handle {
+) -> runtime::RuntimeHandle {
     let mut num_workers = num_cores;
 
     // If the driver is enabled, we need an extra thread to handle polling the
@@ -332,13 +332,13 @@ pub(super) fn create(
         seed_generator,
     });
 
-    let rt_handle = runtime::Handle {
-        inner: scheduler::Handle::MultiThreadAlt(handle),
+    let rt_handle = runtime::RuntimeHandle {
+        schedulerHandleEnum: scheduler::SchedulerHandleEnum::MultiThreadAlt(handle),
     };
 
     // Eagerly start worker threads
     for index in 0..num_workers {
-        let handle = rt_handle.inner.expect_multi_thread_alt();
+        let handle = rt_handle.schedulerHandleEnum.expect_multi_thread_alt();
         let h2 = handle.clone();
         let handoff_core = Arc::new(AtomicCell::new(None));
 
@@ -495,7 +495,7 @@ fn run(
         stats: stats::Ephemeral::new(),
     };
 
-    let sched_handle = scheduler::Handle::MultiThreadAlt(handle.clone());
+    let sched_handle = scheduler::SchedulerHandleEnum::MultiThreadAlt(handle.clone());
 
     crate::runtime::context::enter_runtime(&sched_handle, true, |_| {
         // Set the worker context.

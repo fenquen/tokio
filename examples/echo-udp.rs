@@ -10,8 +10,6 @@
 //!
 //! Each line you type in to the `nc` terminal should be echo'd back to you!
 
-#![warn(rust_2018_idioms)]
-
 use std::error::Error;
 use std::net::SocketAddr;
 use std::{env, io};

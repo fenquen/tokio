@@ -14,7 +14,6 @@
 //! this repository! Many of them recommend running this as a simple "hook up
 //! stdin/stdout to a server" to get up and running.
 
-#![warn(rust_2018_idioms)]
 
 use futures::StreamExt;
 use tokio::io;

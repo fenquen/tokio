@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{fmt, panic};
 
-use crate::runtime::Handle;
+use crate::runtime::RuntimeHandle;
 #[cfg(tokio_unstable)]
 use crate::task::Id;
 use crate::task::{unconstrained, AbortHandle, JoinError, JoinHandle, LocalSet};
@@ -149,7 +149,7 @@ impl<T: 'static> JoinSet<T> {
     ///
     /// [`AbortHandle`]: crate::task::AbortHandle
     #[track_caller]
-    pub fn spawn_on<F>(&mut self, task: F, handle: &Handle) -> AbortHandle
+    pub fn spawn_on<F>(&mut self, task: F, handle: &RuntimeHandle) -> AbortHandle
     where
         F: Future<Output = T>,
         F: Send + 'static,
@@ -253,7 +253,7 @@ impl<T: 'static> JoinSet<T> {
     ///
     /// [`AbortHandle`]: crate::task::AbortHandle
     #[track_caller]
-    pub fn spawn_blocking_on<F>(&mut self, f: F, handle: &Handle) -> AbortHandle
+    pub fn spawn_blocking_on<F>(&mut self, f: F, handle: &RuntimeHandle) -> AbortHandle
     where
         F: FnOnce() -> T,
         F: Send + 'static,
@@ -685,9 +685,9 @@ impl<'a, T: 'static> Builder<'a, T> {
     ///
     ///
     /// [`AbortHandle`]: crate::task::AbortHandle
-    /// [runtime handle]: crate::runtime::Handle
+    /// [runtime handle]: crate::runtime::RuntimeHandle
     #[track_caller]
-    pub fn spawn_on<F>(self, future: F, handle: &Handle) -> std::io::Result<AbortHandle>
+    pub fn spawn_on<F>(self, future: F, handle: &RuntimeHandle) -> std::io::Result<AbortHandle>
     where
         F: Future<Output = T>,
         F: Send + 'static,
@@ -730,7 +730,7 @@ impl<'a, T: 'static> Builder<'a, T> {
     /// [`JoinSet`]: crate::task::JoinSet
     /// [`AbortHandle`]: crate::task::AbortHandle
     #[track_caller]
-    pub fn spawn_blocking_on<F>(self, f: F, handle: &Handle) -> std::io::Result<AbortHandle>
+    pub fn spawn_blocking_on<F>(self, f: F, handle: &RuntimeHandle) -> std::io::Result<AbortHandle>
     where
         F: FnOnce() -> T,
         F: Send + 'static,

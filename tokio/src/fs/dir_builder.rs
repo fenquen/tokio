@@ -104,26 +104,13 @@ impl DirBuilder {
     }
 }
 
-feature! {
-    #![unix]
 
-    impl DirBuilder {
-        /// Sets the mode to create new directories with.
-        ///
-        /// This option defaults to 0o777.
-        ///
-        /// # Examples
-        ///
-        ///
-        /// ```no_run
-        /// use tokio::fs::DirBuilder;
-        ///
-        /// let mut builder = DirBuilder::new();
-        /// builder.mode(0o775);
-        /// ```
-        pub fn mode(&mut self, mode: u32) -> &mut Self {
-            self.mode = Some(mode);
-            self
-        }
+#[cfg(unix)]
+impl DirBuilder {
+    /// set the mode to create new directories with.
+    pub fn mode(&mut self, mode: u32) -> &mut Self {
+        self.mode = Some(mode);
+        self
     }
 }
+

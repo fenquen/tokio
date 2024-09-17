@@ -1,10 +1,10 @@
-use super::Handle;
+use super::MultiThreadSchedulerHandle;
 
 cfg_unstable_metrics! {
     use crate::runtime::{SchedulerMetrics, WorkerMetrics};
 }
 
-impl Handle {
+impl MultiThreadSchedulerHandle {
     pub(crate) fn num_workers(&self) -> usize {
         self.shared.worker_metrics.len()
     }

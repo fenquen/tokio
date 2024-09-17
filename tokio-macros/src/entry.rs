@@ -290,12 +290,10 @@ fn parse_bool(bool: syn::Lit, span: Span, field: &str) -> Result<bool, syn::Erro
     }
 }
 
-fn build_config(
-    input: &ItemFn,
-    args: AttributeArgs,
-    is_test: bool,
-    rt_multi_thread: bool,
-) -> Result<FinalConfig, syn::Error> {
+fn build_config(input: &ItemFn,
+                args: AttributeArgs,
+                is_test: bool,
+                rt_multi_thread: bool) -> Result<FinalConfig, syn::Error> {
     if input.sig.asyncness.is_none() {
         let msg = "the `async` keyword is missing from the function declaration";
         return Err(syn::Error::new_spanned(input.sig.fn_token, msg));
@@ -574,7 +572,7 @@ struct ItemFn {
 
 impl ItemFn {
     /// Access all attributes of the function item.
-    fn attrs(&self) -> impl Iterator<Item = &Attribute> {
+    fn attrs(&self) -> impl Iterator<Item=&Attribute> {
         self.outer_attrs.iter().chain(self.inner_attrs.iter())
     }
 

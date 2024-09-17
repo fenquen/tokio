@@ -6,7 +6,7 @@ use crate::runtime::blocking::schedule::BlockingSchedule;
 use crate::runtime::blocking::{shutdown, BlockingTask};
 use crate::runtime::builder::ThreadNameFn;
 use crate::runtime::task::{self, JoinHandle};
-use crate::runtime::{Builder, Callback, Handle, BOX_FUTURE_THRESHOLD};
+use crate::runtime::{Builder, Callback, RuntimeHandle, BOX_FUTURE_THRESHOLD};
 use crate::util::metric_atomics::MetricAtomicUsize;
 
 use std::collections::{HashMap, VecDeque};
@@ -27,7 +27,7 @@ pub(crate) struct Spawner {
 
 impl Spawner {
     #[track_caller]
-    pub(crate) fn spawn_blocking<F, R>(&self, rt: &Handle, func: F) -> JoinHandle<R>
+    pub(crate) fn spawnBlocking<F, R>(&self, rt: &RuntimeHandle, func: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -50,7 +50,7 @@ impl Spawner {
     cfg_fs! {
         #[track_caller]
         #[cfg_attr(any(all(loom, not(test)),test), allow(dead_code))]
-        pub(crate) fn spawn_mandatory_blocking<F, R>(&self, rt: &Handle, func: F) -> Option<JoinHandle<R>>
+        pub(crate) fn spawn_mandatory_blocking<F, R>(&self, rt: &RuntimeHandle, func: F) -> Option<JoinHandle<R>>
         where
             F: FnOnce() -> R + Send + 'static,
             R: Send + 'static,
@@ -84,7 +84,7 @@ impl Spawner {
                                              func: F,
                                              mandatory: Mandatory,
                                              name: Option<&str>,
-                                             rt: &Handle) -> (JoinHandle<R>, Result<(), SpawnError>)
+                                             runtimeHandle: &RuntimeHandle) -> (JoinHandle<R>, Result<(), SpawnError>)
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -92,35 +92,17 @@ impl Spawner {
         let blockingTask = BlockingTask::new(func);
         let taskId = task::Id::next();
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let fut = {
-            use tracing::Instrument;
-            let location = std::panic::Location::caller();
-            let span = tracing::trace_span!(
-                target: "tokio::task::blocking",
-                "runtime.spawn",
-                kind = %"blocking",
-                task.name = %name.unwrap_or_default(),
-                task.id = id.as_u64(),
-                "fn" = %std::any::type_name::<F>(),
-                loc.file = location.file(),
-                loc.line = location.line(),
-                loc.col = location.column(),
-            );
-            blockingTask.instrument(span)
-        };
-
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         let _ = name;
 
-        let (unownedTask, handle) = task::unowned(blockingTask, BlockingSchedule::new(rt), taskId);
+        let (unownedTask, handle) = task::unowned(blockingTask, BlockingSchedule::new(runtimeHandle), taskId);
 
-        let spawned = self.spawn_task(Task::new(unownedTask, mandatory), rt);
+        let spawned = self.spawn_task(Task::new(unownedTask, mandatory), runtimeHandle);
 
         (handle, spawned)
     }
 
-    fn spawn_task(&self, task: Task, rt: &Handle) -> Result<(), SpawnError> {
+    fn spawn_task(&self, task: Task, rt: &RuntimeHandle) -> Result<(), SpawnError> {
         let mut shared = self.inner.shared.lock();
 
         if shared.shutdown {
@@ -184,7 +166,7 @@ impl Spawner {
 
     fn spawn_thread(&self,
                     shutdown_tx: shutdown::Sender,
-                    rt: &Handle,
+                    rt: &RuntimeHandle,
                     id: usize) -> io::Result<thread::JoinHandle<()>> {
         let mut builder = thread::Builder::new().name((self.inner.thread_name)());
 
@@ -197,7 +179,7 @@ impl Spawner {
         builder.spawn(move || {
             // Only the reference should be moved into the closure
             let _enter = rt.enter();
-            rt.inner.blocking_spawner().inner.run(id);
+            rt.schedulerHandleEnum.getBlockingSpawner().inner.run(id);
             drop(shutdown_tx);
         })
     }
@@ -358,7 +340,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    Handle::current().spawn_blocking(func)
+    RuntimeHandle::current().spawn_blocking(func)
 }
 
 cfg_fs! {
@@ -375,13 +357,13 @@ cfg_fs! {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let rt = Handle::current();
-        rt.inner.blocking_spawner().spawn_mandatory_blocking(&rt, func)
+        let rt = RuntimeHandle::current();
+        rt.schedulerHandleEnum.getBlockingSpawner().spawn_mandatory_blocking(&rt, func)
     }
 }
 
 impl BlockingPool {
-    pub(crate) fn new(builder: &Builder, thread_cap: usize) -> BlockingPool {
+    pub(crate) fn new(builder: &Builder, threadCapacity: usize) -> BlockingPool {
         let (shutdown_tx, shutdown_rx) = shutdown::channel();
         let keep_alive = builder.keep_alive.unwrap_or(KEEP_ALIVE);
 
@@ -402,7 +384,7 @@ impl BlockingPool {
                     stack_size: builder.thread_stack_size,
                     after_start: builder.after_start.clone(),
                     before_stop: builder.before_stop.clone(),
-                    thread_cap,
+                    thread_cap: threadCapacity,
                     keep_alive,
                     metrics: SpawnerMetrics::default(),
                 }),

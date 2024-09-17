@@ -24,8 +24,6 @@
 //! connected clients they'll all join the same room and see everyone else's
 //! messages.
 
-#![warn(rust_2018_idioms)]
-
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::StreamExt;

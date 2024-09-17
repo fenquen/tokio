@@ -7,9 +7,9 @@ where
 {
     #[cfg(tokio_unstable)]
     {
-        use crate::runtime::{Handle, RuntimeFlavor::MultiThreadAlt};
+        use crate::runtime::{RuntimeHandle, RuntimeFlavor::MultiThreadAlt};
 
-        match Handle::try_current().map(|h| h.runtime_flavor()) {
+        match RuntimeHandle::try_current().map(|h| h.runtime_flavor()) {
             Ok(MultiThreadAlt) => {
                 return scheduler::multi_thread_alt::block_in_place(f);
             }

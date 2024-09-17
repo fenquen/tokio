@@ -9,7 +9,7 @@ use tokio::io::{
 #[derive(Debug)]
 pub struct SyncIoBridge<T> {
     src: T,
-    rt: tokio::runtime::Handle,
+    rt: tokio::runtime::RuntimeHandle,
 }
 
 impl<T: AsyncBufRead + Unpin> BufRead for SyncIoBridge<T> {
@@ -117,14 +117,14 @@ impl<T: Unpin> SyncIoBridge<T> {
     /// Use a [`tokio::io::AsyncRead`] synchronously as a [`std::io::Read`] or
     /// a [`tokio::io::AsyncWrite`] as a [`std::io::Write`].
     ///
-    /// When this struct is created, it captures a handle to the current thread's runtime with [`tokio::runtime::Handle::current`].
+    /// When this struct is created, it captures a handle to the current thread's runtime with [`tokio::runtime::RuntimeHandle::current`].
     /// It is hence OK to move this struct into a separate thread outside the runtime, as created
     /// by e.g. [`tokio::task::spawn_blocking`].
     ///
     /// Stated even more strongly: to make use of this bridge, you *must* move
     /// it into a separate thread outside the runtime.  The synchronous I/O will use the
     /// underlying handle to block on the backing asynchronous source, via
-    /// [`tokio::runtime::Handle::block_on`].  As noted in the documentation for that
+    /// [`tokio::runtime::RuntimeHandle::block_on`].  As noted in the documentation for that
     /// function, an attempt to `block_on` from an asynchronous execution context
     /// will panic.
     ///
@@ -137,7 +137,7 @@ impl<T: Unpin> SyncIoBridge<T> {
     /// This will panic if called outside the context of a Tokio runtime.
     #[track_caller]
     pub fn new(src: T) -> Self {
-        Self::new_with_handle(src, tokio::runtime::Handle::current())
+        Self::new_with_handle(src, tokio::runtime::RuntimeHandle::current())
     }
 
     /// Use a [`tokio::io::AsyncRead`] synchronously as a [`std::io::Read`] or
@@ -145,7 +145,7 @@ impl<T: Unpin> SyncIoBridge<T> {
     ///
     /// This is the same as [`SyncIoBridge::new`], but allows passing an arbitrary handle and hence may
     /// be initially invoked outside of an asynchronous context.
-    pub fn new_with_handle(src: T, rt: tokio::runtime::Handle) -> Self {
+    pub fn new_with_handle(src: T, rt: tokio::runtime::RuntimeHandle) -> Self {
         Self { src, rt }
     }
 

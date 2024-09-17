@@ -115,13 +115,11 @@ impl IODriver {
     }
 
     pub(crate) fn park(&mut self, driverHandle: &driver::DriverHandle) {
-        let ioDriverHandle = driverHandle.io();
-        self.turn(ioDriverHandle, None);
+        self.turn(driverHandle.io(), None);
     }
 
-    pub(crate) fn park_timeout(&mut self, rt_handle: &driver::DriverHandle, duration: Duration) {
-        let handle = rt_handle.io();
-        self.turn(handle, Some(duration));
+    pub(crate) fn park_timeout(&mut self, driverHandle: &driver::DriverHandle, duration: Duration) {
+        self.turn(driverHandle.io(), Some(duration));
     }
 
     pub(crate) fn shutdown(&mut self, rt_handle: &driver::DriverHandle) {
@@ -166,13 +164,13 @@ impl IODriver {
                 let ready = Ready::from_mio(mioEvent);
 
                 // Use std::ptr::from_exposed_addr when stable
-                let ptr: *const ScheduledIo = token.0 as *const _;
+                let scheduledIOPtr: *const ScheduledIo = token.0 as *const _;
 
                 // Safety: we ensure that the pointers used as tokens are not freed
                 // until they are both deregistered from mio **and** we know the I/O
                 // driver is not concurrently polling. The I/O driver holds ownership of
                 // an `Arc<ScheduledIo>` so we can safely cast this to a ref.
-                let scheduleInfo: &ScheduledIo = unsafe { &*ptr };
+                let scheduleInfo = unsafe { &*scheduledIOPtr };
 
                 scheduleInfo.set_readiness(Tick::Set, |curr| curr | ready);
                 scheduleInfo.wake(ready);

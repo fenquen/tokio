@@ -254,11 +254,11 @@ impl Sleep {
         location: Option<&'static Location<'static>>,
     ) -> Sleep {
         use crate::runtime::scheduler;
-        let handle = scheduler::Handle::current();
+        let handle = scheduler::SchedulerHandleEnum::current();
         let entry = TimerEntry::new(handle, deadline);
         #[cfg(all(tokio_unstable, feature = "tracing"))]
         let inner = {
-            let handle = scheduler::Handle::current();
+            let handle = scheduler::SchedulerHandleEnum::current();
             let clock = handle.driver().clock();
             let handle = &handle.driver().time();
             let time_source = handle.time_source();

@@ -20,22 +20,17 @@ cfg_rt_multi_thread! {
 
     pub(crate) mod multi_thread;
     pub(crate) use multi_thread::MultiThread;
-
-    cfg_unstable! {
-        pub(crate) mod multi_thread_alt;
-        pub(crate) use multi_thread_alt::MultiThread as MultiThreadAlt;
-    }
 }
 
 use crate::runtime::driver;
 
 #[derive(Debug, Clone)]
-pub(crate) enum Handle {
+pub(crate) enum SchedulerHandleEnum {
     #[cfg(feature = "rt")]
-    CurrentThread(Arc<current_thread::Handle>),
+    CurrentThread(Arc<current_thread::CurrentThreadSchedulerHandle>),
 
     #[cfg(feature = "rt-multi-thread")]
-    MultiThread(Arc<multi_thread::Handle>),
+    MultiThread(Arc<multi_thread::MultiThreadSchedulerHandle>),
 }
 
 #[cfg(feature = "rt")]
@@ -44,26 +39,16 @@ pub(super) enum Context {
 
     #[cfg(feature = "rt-multi-thread")]
     MultiThread(multi_thread::Context),
-
-    #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-    MultiThreadAlt(multi_thread_alt::Context),
 }
 
-impl Handle {
+impl SchedulerHandleEnum {
     #[cfg_attr(not(feature = "full"), allow(dead_code))]
     pub(crate) fn driver(&self) -> &driver::DriverHandle {
         match *self {
             #[cfg(feature = "rt")]
-            Handle::CurrentThread(ref h) => &h.driverHandle,
-
+            SchedulerHandleEnum::CurrentThread(ref h) => &h.driverHandle,
             #[cfg(feature = "rt-multi-thread")]
-            Handle::MultiThread(ref h) => &h.driver,
-
-            #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            Handle::MultiThreadAlt(ref h) => &h.driver,
-
-            #[cfg(not(feature = "rt"))]
-            Handle::Disabled => unreachable!(),
+            SchedulerHandleEnum::MultiThread(ref h) => &h.driverHandle,
         }
     }
 }
@@ -91,22 +76,20 @@ cfg_rt! {
         }
     }
 
-    impl Handle {
+    impl SchedulerHandleEnum {
         #[track_caller]
-        pub(crate) fn current() -> Handle {
+        pub(crate) fn current() -> SchedulerHandleEnum {
             match context::with_current(Clone::clone) {
-                Ok(handle) => handle,
+                Ok(schedulerHandleEnum) => schedulerHandleEnum,
                 Err(e) => panic!("{}", e),
             }
         }
 
-        pub(crate) fn blocking_spawner(&self) -> &blocking::Spawner {
+        pub(crate) fn getBlockingSpawner(&self) -> &blocking::Spawner {
             match self {
-                Handle::CurrentThread(h) => &h.blocking_spawner,
+                SchedulerHandleEnum::CurrentThread(h) => &h.blocking_spawner,
                 #[cfg(feature = "rt-multi-thread")]
-                Handle::MultiThread(h) => &h.blocking_spawner,
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                Handle::MultiThreadAlt(h) => (&h. blocking_spawner),
+                SchedulerHandleEnum::MultiThread(h) => &h.blocking_spawner,
             }
         }
 
@@ -116,31 +99,27 @@ cfg_rt! {
             F::Output: Send + 'static,
         {
             match self {
-                Handle::CurrentThread(h) => current_thread::Handle::spawn(h, future, id),
+                SchedulerHandleEnum::CurrentThread(h) => current_thread::CurrentThreadSchedulerHandle::spawn(h, future, id),
                 #[cfg(feature = "rt-multi-thread")]
-                Handle::MultiThread(h) => multi_thread::Handle::spawn(h, future, id),
+                SchedulerHandleEnum::MultiThread(h) => multi_thread::MultiThreadSchedulerHandle::spawn(h, future, id),
             }
         }
 
         pub(crate) fn shutdown(&self) {
             match *self {
-                Handle::CurrentThread(_) => {},
-
+                SchedulerHandleEnum::CurrentThread(_) => {},
                 #[cfg(feature = "rt-multi-thread")]
-                Handle::MultiThread(ref h) => h.shutdown(),
-
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                Handle::MultiThreadAlt(ref h) => h.shutdown(),
+                SchedulerHandleEnum::MultiThread(ref h) => h.shutdown(),
             }
         }
 
         pub(crate) fn seed_generator(&self) -> &RngSeedGenerator {
-            match_flavor!(self, Handle(h) => &h.seed_generator)
+            match_flavor!(self, SchedulerHandleEnum(h) => &h.seed_generator)
         }
 
-        pub(crate) fn as_current_thread(&self) -> &Arc<current_thread::Handle> {
+        pub(crate) fn as_current_thread(&self) -> &Arc<current_thread::CurrentThreadSchedulerHandle> {
             match self {
-                Handle::CurrentThread(handle) => handle,
+                SchedulerHandleEnum::CurrentThread(handle) => handle,
                 #[cfg(feature = "rt-multi-thread")]
                 _ => panic!("not a CurrentThread handle"),
             }
@@ -148,79 +127,24 @@ cfg_rt! {
 
         pub(crate) fn hooks(&self) -> &TaskHooks {
             match self {
-                Handle::CurrentThread(h) => &h.task_hooks,
+                SchedulerHandleEnum::CurrentThread(h) => &h.task_hooks,
                 #[cfg(feature = "rt-multi-thread")]
-                Handle::MultiThread(h) => &h.task_hooks,
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                Handle::MultiThreadAlt(h) => &h.task_hooks,
-            }
-        }
-
-        cfg_rt_multi_thread! {
-            cfg_unstable! {
-                pub(crate) fn expect_multi_thread_alt(&self) -> &Arc<multi_thread_alt::Handle> {
-                    match self {
-                        Handle::MultiThreadAlt(handle) => handle,
-                        _ => panic!("not a `MultiThreadAlt` handle"),
-                    }
-                }
+                SchedulerHandleEnum::MultiThread(h) => &h.task_hooks,
             }
         }
     }
 
-    impl Handle {
+    impl SchedulerHandleEnum {
         pub(crate) fn num_workers(&self) -> usize {
             match self {
-                Handle::CurrentThread(_) => 1,
+                SchedulerHandleEnum::CurrentThread(_) => 1,
                 #[cfg(feature = "rt-multi-thread")]
-                Handle::MultiThread(handle) => handle.num_workers(),
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                Handle::MultiThreadAlt(handle) => handle.num_workers(),
+                SchedulerHandleEnum::MultiThread(handle) => handle.num_workers(),
             }
         }
 
         pub(crate) fn num_alive_tasks(&self) -> usize {
-            match_flavor!(self, Handle(handle) => handle.num_alive_tasks())
-        }
-    }
-
-    cfg_unstable_metrics! {
-        use crate::runtime::{SchedulerMetrics, WorkerMetrics};
-
-        impl Handle {
-            cfg_64bit_metrics! {
-                pub(crate) fn spawned_tasks_count(&self) -> u64 {
-                    match_flavor!(self, Handle(handle) => handle.spawned_tasks_count())
-                }
-            }
-
-            pub(crate) fn num_blocking_threads(&self) -> usize {
-                match_flavor!(self, Handle(handle) => handle.num_blocking_threads())
-            }
-
-            pub(crate) fn num_idle_blocking_threads(&self) -> usize {
-                match_flavor!(self, Handle(handle) => handle.num_idle_blocking_threads())
-            }
-
-            pub(crate) fn scheduler_metrics(&self) -> &SchedulerMetrics {
-                match_flavor!(self, Handle(handle) => handle.scheduler_metrics())
-            }
-
-            pub(crate) fn worker_metrics(&self, worker: usize) -> &WorkerMetrics {
-                match_flavor!(self, Handle(handle) => handle.worker_metrics(worker))
-            }
-
-            pub(crate) fn injection_queue_depth(&self) -> usize {
-                match_flavor!(self, Handle(handle) => handle.injection_queue_depth())
-            }
-
-            pub(crate) fn worker_local_queue_depth(&self, worker: usize) -> usize {
-                match_flavor!(self, Handle(handle) => handle.worker_local_queue_depth(worker))
-            }
-
-            pub(crate) fn blocking_queue_depth(&self) -> usize {
-                match_flavor!(self, Handle(handle) => handle.blocking_queue_depth())
-            }
+            match_flavor!(self, SchedulerHandleEnum(handle) => handle.num_alive_tasks())
         }
     }
 
@@ -246,16 +170,6 @@ cfg_rt! {
                     _ => panic!("expected `MultiThread::Context`")
                 }
             }
-
-            cfg_unstable! {
-                #[track_caller]
-                pub(crate) fn expect_multi_thread_alt(&self) -> &multi_thread_alt::Context {
-                    match self {
-                        Context::MultiThreadAlt(context) => context,
-                        _ => panic!("expected `MultiThreadAlt::Context`")
-                    }
-                }
-            }
         }
     }
 }
@@ -267,9 +181,9 @@ cfg_not_rt! {
         all(unix, feature = "signal"),
         feature = "time",
     ))]
-    impl Handle {
+    impl SchedulerHandleEnum {
         #[track_caller]
-        pub(crate) fn current() -> Handle {
+        pub(crate) fn current() -> SchedulerHandleEnum {
             panic!("{}", crate::util::error::CONTEXT_MISSING_ERROR)
         }
     }

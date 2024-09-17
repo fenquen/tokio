@@ -99,7 +99,7 @@ nix = { version = "0.29.0", default-features = false, features = ["aio", "fs", "
 
 
 [dev-dependencies]
-tokio-test = { version = "0.4.0", path = "../tokio-test" }
+#tokio-test = { version = "0.4.0", path = "../tokio-test" }
 tokio-stream = { version = "0.1", path = "../tokio-stream" }
 futures = { version = "0.3.0", features = ["async-await"] }
 mockall = "0.11.1"

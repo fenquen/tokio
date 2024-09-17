@@ -96,7 +96,7 @@ pub(crate) mod sys {
                 assert!(n > 0, "\"{}\" cannot be set to 0", ENV_WORKER_THREADS);
                 n
             }
-            Err(std::env::VarError::NotPresent) => std::thread::available_parallelism().map_or(1, NonZeroUsize::get)
+            Err(std::env::VarError::NotPresent) => std::thread::available_parallelism().map_or(1, NonZeroUsize::get),
             Err(std::env::VarError::NotUnicode(e)) => panic!("\"{}\" must be valid unicode, error: {:?}", ENV_WORKER_THREADS, e)
         }
     }

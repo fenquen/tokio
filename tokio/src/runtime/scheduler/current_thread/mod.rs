@@ -27,13 +27,11 @@ pub(crate) struct CurrentThread {
     /// Core scheduler data is acquired by a thread entering `block_on`.
     core: AtomicCell<Core>,
 
-    /// Notifier for waking up other threads to steal the
-    /// driver.
+    /// Notifier for waking up other threads to steal the driver.
     notify: Notify,
 }
 
-/// Handle to the current thread scheduler
-pub(crate) struct Handle {
+pub(crate) struct CurrentThreadSchedulerHandle {
     /// Scheduler state shared across threads
     shared: Shared,
 
@@ -78,10 +76,10 @@ struct Core {
 /// Scheduler state shared between threads.
 struct Shared {
     /// Remote run queue
-    inject: Inject<Arc<Handle>>,
+    inject: Inject<Arc<CurrentThreadSchedulerHandle>>,
 
     /// Collection of all active tasks spawned onto this executor.
-    owned: OwnedTasks<Arc<Handle>>,
+    owned: OwnedTasks<Arc<CurrentThreadSchedulerHandle>>,
 
     /// Indicates whether the blocked on thread was woken.
     woken: AtomicBool,
@@ -101,7 +99,7 @@ struct Shared {
 /// pub(crate) to store in `runtime::context`.
 pub(crate) struct Context {
     /// Scheduler handle
-    handle: Arc<Handle>,
+    handle: Arc<CurrentThreadSchedulerHandle>,
 
     /// Scheduler core, enabling the holder of `Context` to execute the
     /// scheduler.
@@ -111,7 +109,7 @@ pub(crate) struct Context {
     pub(crate) defer: Defer,
 }
 
-type Notified = task::Notified<Arc<Handle>>;
+type Notified = task::Notified<Arc<CurrentThreadSchedulerHandle>>;
 
 /// Initial queue capacity.
 const INITIAL_CAPACITY: usize = 64;
@@ -128,7 +126,7 @@ impl CurrentThread {
         blocking_spawner: blocking::Spawner,
         seed_generator: RngSeedGenerator,
         config: Config,
-    ) -> (CurrentThread, Arc<Handle>) {
+    ) -> (CurrentThread, Arc<CurrentThreadSchedulerHandle>) {
         let worker_metrics = WorkerMetrics::from_config(&config);
         worker_metrics.set_thread_id(thread::current().id());
 
@@ -137,7 +135,7 @@ impl CurrentThread {
             .global_queue_interval
             .unwrap_or(DEFAULT_GLOBAL_QUEUE_INTERVAL);
 
-        let handle = Arc::new(Handle {
+        let handle = Arc::new(CurrentThreadSchedulerHandle {
             task_hooks: TaskHooks {
                 task_spawn_callback: config.before_spawn.clone(),
                 task_terminate_callback: config.after_termination.clone(),
@@ -173,7 +171,7 @@ impl CurrentThread {
     }
 
     #[track_caller]
-    pub(crate) fn block_on<F: Future>(&self, handle: &scheduler::Handle, future: F) -> F::Output {
+    pub(crate) fn block_on<F: Future>(&self, handle: &scheduler::SchedulerHandleEnum, future: F) -> F::Output {
         pin!(future);
 
         crate::runtime::context::enter_runtime(handle, false, |blocking| {
@@ -214,7 +212,7 @@ impl CurrentThread {
         })
     }
 
-    fn take_core(&self, handle: &Arc<Handle>) -> Option<CoreGuard<'_>> {
+    fn take_core(&self, handle: &Arc<CurrentThreadSchedulerHandle>) -> Option<CoreGuard<'_>> {
         let core = self.core.take()?;
 
         Some(CoreGuard {
@@ -227,7 +225,7 @@ impl CurrentThread {
         })
     }
 
-    pub(crate) fn shutdown(&mut self, handle: &scheduler::Handle) {
+    pub(crate) fn shutdown(&mut self, handle: &scheduler::SchedulerHandleEnum) {
         let handle = handle.as_current_thread();
 
         // Avoid a double panic if we are currently panicking and
@@ -260,7 +258,7 @@ impl CurrentThread {
     }
 }
 
-fn shutdown2(mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+fn shutdown2(mut core: Box<Core>, handle: &CurrentThreadSchedulerHandle) -> Box<Core> {
     // Drain the OwnedTasks collection. This call also closes the
     // collection, ensuring that no tasks are ever pushed after this
     // call returns.
@@ -307,7 +305,7 @@ impl Core {
         self.tick = self.tick.wrapping_add(1);
     }
 
-    fn next_task(&mut self, handle: &Handle) -> Option<Notified> {
+    fn next_task(&mut self, handle: &CurrentThreadSchedulerHandle) -> Option<Notified> {
         if self.tick % self.global_queue_interval == 0 {
             handle
                 .next_remote_task()
@@ -318,7 +316,7 @@ impl Core {
         }
     }
 
-    fn next_local_task(&mut self, handle: &Handle) -> Option<Notified> {
+    fn next_local_task(&mut self, handle: &CurrentThreadSchedulerHandle) -> Option<Notified> {
         let ret = self.tasks.pop_front();
         handle
             .shared
@@ -327,7 +325,7 @@ impl Core {
         ret
     }
 
-    fn push_task(&mut self, handle: &Handle, task: Notified) {
+    fn push_task(&mut self, handle: &CurrentThreadSchedulerHandle, task: Notified) {
         self.tasks.push_back(task);
         self.metrics.inc_local_schedule_count();
         handle
@@ -336,7 +334,7 @@ impl Core {
             .set_queue_depth(self.tasks.len());
     }
 
-    fn submit_metrics(&mut self, handle: &Handle) {
+    fn submit_metrics(&mut self, handle: &CurrentThreadSchedulerHandle) {
         self.metrics.submit(&handle.shared.worker_metrics, 0);
     }
 }
@@ -363,7 +361,7 @@ impl Context {
 
     /// Blocks the current thread until an event is received by the driver,
     /// including I/O events, timer events, ...
-    fn park(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+    fn park(&self, mut core: Box<Core>, handle: &CurrentThreadSchedulerHandle) -> Box<Core> {
         let mut driver = core.driver.take().expect("driver missing");
 
         if let Some(f) = &handle.shared.config.before_park {
@@ -399,7 +397,7 @@ impl Context {
     }
 
     /// Checks the driver for new events without blocking the thread.
-    fn park_yield(&self, mut core: Box<Core>, handle: &Handle) -> Box<Core> {
+    fn park_yield(&self, mut core: Box<Core>, handle: &CurrentThreadSchedulerHandle) -> Box<Core> {
         let mut driver = core.driver.take().expect("driver missing");
 
         core.submit_metrics(handle);
@@ -434,7 +432,7 @@ impl Context {
 
 // ===== impl Handle =====
 
-impl Handle {
+impl CurrentThreadSchedulerHandle {
     /// Spawns a future onto the `CurrentThread` scheduler
     pub(crate) fn spawn<F>(
         me: &Arc<Self>,
@@ -532,7 +530,7 @@ impl Handle {
 }
 
 cfg_unstable_metrics! {
-    impl Handle {
+    impl CurrentThreadSchedulerHandle {
         pub(crate) fn scheduler_metrics(&self) -> &SchedulerMetrics {
             &self.shared.scheduler_metrics
         }
@@ -573,14 +571,14 @@ cfg_unstable_metrics! {
 cfg_unstable! {
     use std::num::NonZeroU64;
 
-    impl Handle {
+    impl CurrentThreadSchedulerHandle {
         pub(crate) fn owned_id(&self) -> NonZeroU64 {
             self.shared.owned.id
         }
     }
 }
 
-impl fmt::Debug for Handle {
+impl fmt::Debug for CurrentThreadSchedulerHandle {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("current_thread::Handle { ... }").finish()
     }
@@ -588,7 +586,7 @@ impl fmt::Debug for Handle {
 
 // ===== impl Shared =====
 
-impl Schedule for Arc<Handle> {
+impl Schedule for Arc<CurrentThreadSchedulerHandle> {
     fn release(&self, task: &Task<Self>) -> Option<Task<Self>> {
         self.shared.owned.remove(task)
     }
@@ -624,7 +622,7 @@ impl Schedule for Arc<Handle> {
     }
 }
 
-impl Wake for Handle {
+impl Wake for CurrentThreadSchedulerHandle {
     fn wake(arc_self: Arc<Self>) {
         Wake::wake_by_ref(&arc_self);
     }
@@ -649,7 +647,7 @@ impl CoreGuard<'_> {
     #[track_caller]
     fn block_on<F: Future>(self, future: F) -> F::Output {
         let ret = self.enter(|mut core, context| {
-            let waker = Handle::waker_ref(&context.handle);
+            let waker = CurrentThreadSchedulerHandle::waker_ref(&context.handle);
             let mut cx = std::task::Context::from_waker(&waker);
 
             pin!(future);

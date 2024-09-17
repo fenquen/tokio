@@ -4,7 +4,7 @@ mod counters;
 use counters::Counters;
 
 mod handle;
-pub(crate) use handle::Handle;
+pub(crate) use handle::MultiThreadSchedulerHandle;
 
 mod overflow;
 pub(crate) use overflow::Overflow;
@@ -16,12 +16,12 @@ mod stats;
 pub(crate) use stats::Stats;
 
 mod park;
-pub(crate) use park::{Parker, Unparker};
+pub(crate) use park::{Parker, UnParker};
 
 pub(crate) mod queue;
 
 mod worker;
-pub(crate) use worker::{Context, Launch, Shared};
+pub(crate) use worker::{Context, Launcher, Shared};
 
 cfg_taskdump! {
     mod trace;
@@ -57,9 +57,10 @@ impl MultiThread {
                       driver_handle: driver::DriverHandle,
                       blocking_spawner: blocking::Spawner,
                       seed_generator: RngSeedGenerator,
-                      config: Config) -> (MultiThread, Arc<Handle>, Launch) {
+                      config: Config) -> (MultiThread, Arc<MultiThreadSchedulerHandle>, Launcher) {
         let parker = Parker::new(driver);
-        let (handle, launch) =
+
+        let (multiThreadSchedulerHandle, launcher) =
             worker::create(coreThreadCount,
                            parker,
                            driver_handle,
@@ -67,14 +68,14 @@ impl MultiThread {
                            seed_generator,
                            config);
 
-        (MultiThread, handle, launch)
+        (MultiThread, multiThreadSchedulerHandle, launcher)
     }
 
     /// Blocks the current thread waiting for the future to complete.
     ///
     /// The future will execute on the current thread, but all spawned tasks
     /// will be executed on the thread pool.
-    pub(crate) fn block_on<F>(&self, handle: &scheduler::Handle, future: F) -> F::Output
+    pub(crate) fn block_on<F>(&self, handle: &scheduler::SchedulerHandleEnum, future: F) -> F::Output
     where
         F: Future,
     {
@@ -83,9 +84,9 @@ impl MultiThread {
         })
     }
 
-    pub(crate) fn shutdown(&mut self, handle: &scheduler::Handle) {
+    pub(crate) fn shutdown(&mut self, handle: &scheduler::SchedulerHandleEnum) {
         match handle {
-            scheduler::Handle::MultiThread(handle) => handle.shutdown(),
+            scheduler::SchedulerHandleEnum::MultiThread(handle) => handle.shutdown(),
             _ => panic!("expected MultiThread scheduler"),
         }
     }

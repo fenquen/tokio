@@ -36,10 +36,10 @@ cfg_test_util! {
     cfg_rt! {
         #[track_caller]
         fn with_clock<R>(f: impl FnOnce(Option<&Clock>) -> Result<R, &'static str>) -> R {
-            use crate::runtime::Handle;
+            use crate::runtime::RuntimeHandle;
 
-            let res = match Handle::try_current() {
-                Ok(handle) => f(Some(handle.inner.driver().clock())),
+            let res = match RuntimeHandle::try_current() {
+                Ok(handle) => f(Some(handle.schedulerHandleEnum.driver().clock())),
                 Err(ref e) if e.is_missing_context() => f(None),
                 Err(_) => panic!("{}", crate::util::error::THREAD_LOCAL_DESTROYED_ERROR),
             };

@@ -264,9 +264,9 @@ impl<T: Future> Future for Root<T> {
 
 /// Trace and poll all tasks of the `current_thread` runtime.
 pub(in crate::runtime) fn trace_current_thread(
-    owned: &OwnedTasks<Arc<current_thread::Handle>>,
-    local: &mut VecDeque<Notified<Arc<current_thread::Handle>>>,
-    injection: &Inject<Arc<current_thread::Handle>>,
+    owned: &OwnedTasks<Arc<current_thread::CurrentThreadSchedulerHandle>>,
+    local: &mut VecDeque<Notified<Arc<current_thread::CurrentThreadSchedulerHandle>>>,
+    injection: &Inject<Arc<current_thread::CurrentThreadSchedulerHandle>>,
 ) -> Vec<(Id, Trace)> {
     // clear the local and injection queues
 

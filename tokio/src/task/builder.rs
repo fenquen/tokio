@@ -1,6 +1,6 @@
 #![allow(unreachable_pub)]
 use crate::{
-    runtime::{Handle, BOX_FUTURE_THRESHOLD},
+    runtime::{RuntimeHandle, BOX_FUTURE_THRESHOLD},
     task::{JoinHandle, LocalSet},
 };
 use std::{future::Future, io};
@@ -102,10 +102,10 @@ impl<'a> Builder<'a> {
     ///
     /// See [`Handle::spawn`] for more details.
     ///
-    /// [runtime handle]: crate::runtime::Handle
-    /// [`Handle::spawn`]: crate::runtime::Handle::spawn
+    /// [runtime handle]: crate::runtime::RuntimeHandle
+    /// [`Handle::spawn`]: crate::runtime::RuntimeHandle::spawn
     #[track_caller]
-    pub fn spawn_on<Fut>(self, future: Fut, handle: &Handle) -> io::Result<JoinHandle<Fut::Output>>
+    pub fn spawn_on<Fut>(self, future: Fut, handle: &RuntimeHandle) -> io::Result<JoinHandle<Fut::Output>>
     where
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
@@ -185,7 +185,7 @@ impl<'a> Builder<'a> {
         Function: FnOnce() -> Output + Send + 'static,
         Output: Send + 'static,
     {
-        let handle = Handle::current();
+        let handle = RuntimeHandle::current();
         self.spawn_blocking_on(function, &handle)
     }
 
@@ -193,13 +193,13 @@ impl<'a> Builder<'a> {
     ///
     /// See [`Handle::spawn_blocking`] for more details.
     ///
-    /// [runtime handle]: crate::runtime::Handle
-    /// [`Handle::spawn_blocking`]: crate::runtime::Handle::spawn_blocking
+    /// [runtime handle]: crate::runtime::RuntimeHandle
+    /// [`Handle::spawn_blocking`]: crate::runtime::RuntimeHandle::spawn_blocking
     #[track_caller]
     pub fn spawn_blocking_on<Function, Output>(
         self,
         function: Function,
-        handle: &Handle,
+        handle: &RuntimeHandle,
     ) -> io::Result<JoinHandle<Output>>
     where
         Function: FnOnce() -> Output + Send + 'static,
@@ -208,14 +208,14 @@ impl<'a> Builder<'a> {
         use crate::runtime::Mandatory;
         let (join_handle, spawn_result) =
             if cfg!(debug_assertions) && std::mem::size_of::<Function>() > BOX_FUTURE_THRESHOLD {
-                handle.inner.blocking_spawner().spawn_blocking_inner(
+                handle.schedulerHandleEnum.getBlockingSpawner().spawn_blocking_inner(
                     Box::new(function),
                     Mandatory::NonMandatory,
                     self.name,
                     handle,
                 )
             } else {
-                handle.inner.blocking_spawner().spawn_blocking_inner(
+                handle.schedulerHandleEnum.getBlockingSpawner().spawn_blocking_inner(
                     function,
                     Mandatory::NonMandatory,
                     self.name,

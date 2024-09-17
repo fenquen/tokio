@@ -20,8 +20,6 @@
 //! This final terminal will connect to our proxy, which will in turn connect to
 //! the echo server, and you'll be able to see data flowing between them.
 
-#![warn(rust_2018_idioms)]
-
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
 

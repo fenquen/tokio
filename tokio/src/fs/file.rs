@@ -908,32 +908,6 @@ impl std::os::unix::io::FromRawFd for File {
     }
 }
 
-cfg_windows! {
-    use crate::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle, AsHandle, BorrowedHandle};
-
-    impl AsRawHandle for File {
-        fn as_raw_handle(&self) -> RawHandle {
-            self.std.as_raw_handle()
-        }
-    }
-
-    impl AsHandle for File {
-        fn as_handle(&self) -> BorrowedHandle<'_> {
-            unsafe {
-                BorrowedHandle::borrow_raw(
-                    AsRawHandle::as_raw_handle(self),
-                )
-            }
-        }
-    }
-
-    impl FromRawHandle for File {
-        unsafe fn from_raw_handle(handle: RawHandle) -> Self {
-            StdFile::from_raw_handle(handle).into()
-        }
-    }
-}
-
 impl Inner {
     async fn complete_inflight(&mut self) {
         use crate::future::poll_fn;

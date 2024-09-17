@@ -12,7 +12,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::{RuntimeHandle, Runtime};
 
 pin_project! {
     /// `TokioContext` allows running futures that must be inside Tokio's
@@ -58,7 +58,7 @@ pin_project! {
     /// rt2.block_on(fut);
     /// ```
     ///
-    /// [`Handle`]: struct@tokio::runtime::Handle
+    /// [`Handle`]: struct@tokio::runtime::RuntimeHandle
     /// [`Runtime::handle()`]: fn@tokio::runtime::Runtime::handle
     /// [`RuntimeExt`]: trait@crate::context::RuntimeExt
     /// [`new_static`]: fn@Self::new_static
@@ -69,7 +69,7 @@ pin_project! {
     pub struct TokioContext<F> {
         #[pin]
         inner: F,
-        handle: Handle,
+        handle: RuntimeHandle,
     }
 }
 
@@ -110,7 +110,7 @@ impl<F> TokioContext<F> {
     /// // Execute the future on rt2.
     /// rt2.block_on(fut);
     /// ```
-    pub fn new(future: F, handle: Handle) -> TokioContext<F> {
+    pub fn new(future: F, handle: RuntimeHandle) -> TokioContext<F> {
         TokioContext {
             inner: future,
             handle,
@@ -118,7 +118,7 @@ impl<F> TokioContext<F> {
     }
 
     /// Obtain a reference to the handle inside this `TokioContext`.
-    pub fn handle(&self) -> &Handle {
+    pub fn handle(&self) -> &RuntimeHandle {
         &self.handle
     }
 

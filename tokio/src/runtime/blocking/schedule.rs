@@ -1,7 +1,7 @@
 #[cfg(feature = "test-util")]
 use crate::runtime::scheduler;
 use crate::runtime::task::{self, Task, TaskHarnessScheduleHooks};
-use crate::runtime::Handle;
+use crate::runtime::RuntimeHandle;
 
 /// `task::Schedule` implementation that does nothing (except some bookkeeping
 /// in test-util builds). This is unique to the blocking scheduler as tasks
@@ -11,31 +11,29 @@ use crate::runtime::Handle;
 /// in `release`.
 pub(crate) struct BlockingSchedule {
     #[cfg(feature = "test-util")]
-    handle: Handle,
+    handle: RuntimeHandle,
     hooks: TaskHarnessScheduleHooks,
 }
 
 impl BlockingSchedule {
     #[cfg_attr(not(feature = "test-util"), allow(unused_variables))]
-    pub(crate) fn new(handle: &Handle) -> Self {
+    pub(crate) fn new(runtimeHandle: &RuntimeHandle) -> Self {
         #[cfg(feature = "test-util")]
         {
-            match &handle.inner {
-                scheduler::Handle::CurrentThread(handle) => {
+            match &runtimeHandle.schedulerHandleEnum {
+                scheduler::SchedulerHandleEnum::CurrentThread(handle) => {
                     handle.driverHandle.clock.inhibit_auto_advance();
                 }
                 #[cfg(feature = "rt-multi-thread")]
-                scheduler::Handle::MultiThread(_) => {}
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                scheduler::Handle::MultiThreadAlt(_) => {}
+                scheduler::SchedulerHandleEnum::MultiThread(_) => {}
             }
         }
 
         BlockingSchedule {
             #[cfg(feature = "test-util")]
-            handle: handle.clone(),
+            handle: runtimeHandle.clone(),
             hooks: TaskHarnessScheduleHooks {
-                task_terminate_callback: handle.inner.hooks().task_terminate_callback.clone(),
+                task_terminate_callback: runtimeHandle.schedulerHandleEnum.hooks().task_terminate_callback.clone(),
             },
         }
     }
@@ -45,15 +43,15 @@ impl task::Schedule for BlockingSchedule {
     fn release(&self, _task: &Task<Self>) -> Option<Task<Self>> {
         #[cfg(feature = "test-util")]
         {
-            match &self.handle.inner {
-                scheduler::Handle::CurrentThread(handle) => {
+            match &self.handle.schedulerHandleEnum {
+                scheduler::SchedulerHandleEnum::CurrentThread(handle) => {
                     handle.driverHandle.clock.allow_auto_advance();
                     handle.driverHandle.unpark();
                 }
                 #[cfg(feature = "rt-multi-thread")]
-                scheduler::Handle::MultiThread(_) => {}
+                scheduler::SchedulerHandleEnum::MultiThread(_) => {}
                 #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                scheduler::Handle::MultiThreadAlt(_) => {}
+                scheduler::SchedulerHandleEnum::MultiThreadAlt(_) => {}
             }
         }
         None

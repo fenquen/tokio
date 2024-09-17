@@ -11,8 +11,6 @@
 //! respectively. By default this will run I/O on all the cores your system has
 //! available, and it doesn't support HTTP request bodies.
 
-#![warn(rust_2018_idioms)]
-
 use bytes::BytesMut;
 use futures::SinkExt;
 use http::{header::HeaderValue, Request, Response, StatusCode};

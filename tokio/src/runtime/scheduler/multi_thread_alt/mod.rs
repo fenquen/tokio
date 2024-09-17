@@ -50,7 +50,7 @@ impl MultiThread {
         blocking_spawner: blocking::Spawner,
         seed_generator: RngSeedGenerator,
         config: Config,
-    ) -> (MultiThread, runtime::Handle) {
+    ) -> (MultiThread, runtime::RuntimeHandle) {
         let handle = worker::create(
             size,
             driver,
@@ -67,7 +67,7 @@ impl MultiThread {
     ///
     /// The future will execute on the current thread, but all spawned tasks
     /// will be executed on the thread pool.
-    pub(crate) fn block_on<F>(&self, handle: &scheduler::Handle, future: F) -> F::Output
+    pub(crate) fn block_on<F>(&self, handle: &scheduler::SchedulerHandleEnum, future: F) -> F::Output
     where
         F: Future,
     {
@@ -76,9 +76,9 @@ impl MultiThread {
         })
     }
 
-    pub(crate) fn shutdown(&mut self, handle: &scheduler::Handle) {
+    pub(crate) fn shutdown(&mut self, handle: &scheduler::SchedulerHandleEnum) {
         match handle {
-            scheduler::Handle::MultiThreadAlt(handle) => handle.shutdown(),
+            scheduler::SchedulerHandleEnum::MultiThreadAlt(handle) => handle.shutdown(),
             _ => panic!("expected MultiThread scheduler"),
         }
     }

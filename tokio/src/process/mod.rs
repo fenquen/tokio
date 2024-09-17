@@ -235,10 +235,6 @@ pub(crate) mod unix {
     pub(crate) use super::imp::*;
 }
 
-#[path = "windows.rs"]
-#[cfg(windows)]
-mod imp;
-
 mod kill;
 
 use crate::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -254,10 +250,6 @@ use std::task::{ready, Context, Poll};
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-
-cfg_windows! {
-    use crate::os::windows::io::{AsRawHandle, RawHandle};
-}
 
 /// This structure mimics the API of [`std::process::Command`] found in the standard library, but
 /// replaces functions that create a process with an asynchronous variant. The main provided

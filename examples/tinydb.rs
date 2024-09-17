@@ -39,8 +39,6 @@
 //! * `SET $key $value` - this will set the value of `$key` to `$value`,
 //!   returning the previous value, if any.
 
-#![warn(rust_2018_idioms)]
-
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{Framed, LinesCodec};

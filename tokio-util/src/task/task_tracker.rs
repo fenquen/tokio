@@ -13,7 +13,7 @@ use tokio::sync::{futures::Notified, Notify};
 
 #[cfg(feature = "rt")]
 use tokio::{
-    runtime::Handle,
+    runtime::RuntimeHandle,
     task::{JoinHandle, LocalSet},
 };
 
@@ -388,7 +388,7 @@ impl TaskTracker {
     #[track_caller]
     #[cfg(feature = "rt")]
     #[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
-    pub fn spawn_on<F>(&self, task: F, handle: &Handle) -> JoinHandle<F::Output>
+    pub fn spawn_on<F>(&self, task: F, handle: &RuntimeHandle) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -460,7 +460,7 @@ impl TaskTracker {
     #[cfg(feature = "rt")]
     #[cfg(not(target_family = "wasm"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
-    pub fn spawn_blocking_on<F, T>(&self, task: F, handle: &Handle) -> JoinHandle<T>
+    pub fn spawn_blocking_on<F, T>(&self, task: F, handle: &RuntimeHandle) -> JoinHandle<T>
     where
         F: FnOnce() -> T,
         F: Send + 'static,

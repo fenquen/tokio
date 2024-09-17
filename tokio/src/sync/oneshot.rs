@@ -221,8 +221,6 @@ use std::task::{ready, Context, Poll, Waker};
 #[derive(Debug)]
 pub struct Sender<T> {
     inner: Option<Arc<Inner<T>>>,
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
 }
 
 /// Receives a value from the associated [`Sender`].
@@ -321,12 +319,6 @@ pub struct Sender<T> {
 #[derive(Debug)]
 pub struct Receiver<T> {
     inner: Option<Arc<Inner<T>>>,
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    async_op_span: tracing::Span,
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    async_op_poll_span: tracing::Span,
 }
 
 pub mod error {
@@ -468,54 +460,6 @@ struct State(usize);
 /// ```
 #[track_caller]
 pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    let resource_span = {
-        let location = std::panic::Location::caller();
-
-        let resource_span = tracing::trace_span!(
-            parent: None,
-            "runtime.resource",
-            concrete_type = "Sender|Receiver",
-            kind = "Sync",
-            loc.file = location.file(),
-            loc.line = location.line(),
-            loc.col = location.column(),
-        );
-
-        resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            tx_dropped = false,
-            tx_dropped.op = "override",
-            )
-        });
-
-        resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            rx_dropped = false,
-            rx_dropped.op = "override",
-            )
-        });
-
-        resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            value_sent = false,
-            value_sent.op = "override",
-            )
-        });
-
-        resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            value_received = false,
-            value_received.op = "override",
-            )
-        });
-
-        resource_span
-    };
 
     let inner = Arc::new(Inner {
         state: AtomicUsize::new(State::new().as_usize()),
@@ -526,26 +470,10 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
 
     let tx = Sender {
         inner: Some(inner.clone()),
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        resource_span: resource_span.clone(),
     };
-
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    let async_op_span = resource_span
-        .in_scope(|| tracing::trace_span!("runtime.resource.async_op", source = "Receiver::await"));
-
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    let async_op_poll_span =
-        async_op_span.in_scope(|| tracing::trace_span!("runtime.resource.async_op.poll"));
 
     let rx = Receiver {
         inner: Some(inner),
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        resource_span,
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        async_op_span,
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        async_op_poll_span,
     };
 
     (tx, rx)
@@ -700,16 +628,6 @@ impl<T> Sender<T> {
     pub async fn closed(&mut self) {
         use crate::future::poll_fn;
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let resource_span = self.resource_span.clone();
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let closed = trace::async_op(
-            || poll_fn(|cx| self.poll_closed(cx)),
-            resource_span,
-            "Sender::closed",
-            "poll_closed",
-            false,
-        );
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         let closed = poll_fn(|cx| self.poll_closed(cx));
 
@@ -845,14 +763,6 @@ impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_ref() {
             inner.complete();
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            self.resource_span.in_scope(|| {
-                tracing::trace!(
-                target: "runtime::resource::state_update",
-                tx_dropped = true,
-                tx_dropped.op = "override",
-                )
-            });
         }
     }
 }
@@ -920,14 +830,6 @@ impl<T> Receiver<T> {
     pub fn close(&mut self) {
         if let Some(inner) = self.inner.as_ref() {
             inner.close();
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            self.resource_span.in_scope(|| {
-                tracing::trace!(
-                target: "runtime::resource::state_update",
-                rx_dropped = true,
-                rx_dropped.op = "override",
-                )
-            });
         }
     }
 

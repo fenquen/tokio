@@ -1,6 +1,6 @@
-use super::{Core, Handle};
+use super::{Core, MultiThreadSchedulerHandle};
 
-impl Handle {
+impl MultiThreadSchedulerHandle {
     pub(super) fn trace_core(&self, core: Box<Core>) -> Box<Core> {
         core
     }

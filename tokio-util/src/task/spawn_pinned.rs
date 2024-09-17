@@ -361,7 +361,7 @@ impl Drop for AbortGuard {
 type PinnedFutureSpawner = Box<dyn FnOnce() + Send + 'static>;
 
 struct LocalWorkerHandle {
-    runtime_handle: tokio::runtime::Handle,
+    runtime_handle: tokio::runtime::RuntimeHandle,
     spawner: UnboundedSender<PinnedFutureSpawner>,
     task_count: Arc<AtomicUsize>,
 }
