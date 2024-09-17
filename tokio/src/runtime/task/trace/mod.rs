@@ -194,11 +194,11 @@ pub(crate) fn trace_leaf(cx: &mut task::Context<'_>) -> Poll<()> {
         context::with_scheduler(|scheduler| {
             if let Some(scheduler) = scheduler {
                 match scheduler {
-                    scheduler::Context::CurrentThread(s) => s.defer.defer(cx.waker()),
+                    scheduler::ThreadLocalContextEnum::CurrentThread(s) => s.defer.defer(cx.waker()),
                     #[cfg(feature = "rt-multi-thread")]
-                    scheduler::Context::MultiThread(s) => s.defer.defer(cx.waker()),
+                    scheduler::ThreadLocalContextEnum::MultiThread(s) => s.defer.defer(cx.waker()),
                     #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                    scheduler::Context::MultiThreadAlt(_) => unimplemented!(),
+                    scheduler::ThreadLocalContextEnum::MultiThreadAlt(_) => unimplemented!(),
                 }
             }
         });

@@ -34,11 +34,11 @@ pub(crate) enum SchedulerHandleEnum {
 }
 
 #[cfg(feature = "rt")]
-pub(super) enum Context {
+pub(super) enum ThreadLocalContextEnum {
     CurrentThread(current_thread::Context),
 
     #[cfg(feature = "rt-multi-thread")]
-    MultiThread(multi_thread::Context),
+    MultiThread(multi_thread::MultiThreadThreadLocalContext),
 }
 
 impl SchedulerHandleEnum {
@@ -148,29 +148,29 @@ cfg_rt! {
         }
     }
 
-    impl Context {
+    impl ThreadLocalContextEnum {
         #[track_caller]
         pub(crate) fn expect_current_thread(&self) -> &current_thread::Context {
             match self {
-                Context::CurrentThread(context) => context,
+                ThreadLocalContextEnum::CurrentThread(context) => context,
                 #[cfg(feature = "rt-multi-thread")]
                 _ => panic!("expected `CurrentThread::Context`")
             }
         }
 
         pub(crate) fn defer(&self, waker: &Waker) {
-            match_flavor!(self, Context(context) => context.defer(waker));
+            match_flavor!(self, ThreadLocalContextEnum(context) => context.defer(waker));
         }
 
-        cfg_rt_multi_thread! {
+         #[cfg(feature = "rt-multi-thread")]
             #[track_caller]
-            pub(crate) fn expect_multi_thread(&self) -> &multi_thread::Context {
+            pub(crate) fn expect_multi_thread(&self) -> &multi_thread::MultiThreadThreadLocalContext {
                 match self {
-                    Context::MultiThread(context) => context,
+                    ThreadLocalContextEnum::MultiThread(multiThreadThreadLocalContext) => multiThreadThreadLocalContext,
                     _ => panic!("expected `MultiThread::Context`")
                 }
             }
-        }
+
     }
 }
 

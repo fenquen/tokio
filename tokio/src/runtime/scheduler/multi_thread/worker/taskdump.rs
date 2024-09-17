@@ -33,7 +33,7 @@ impl MultiThreadSchedulerHandle {
 
         // trace
 
-        let owned = &self.shared.owned;
+        let owned = &self.shared.ownedTasks;
         let mut local = self.shared.steal_all();
         let synced = &self.shared.synced;
         let injection = &self.shared.inject;

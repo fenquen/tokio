@@ -34,10 +34,4 @@ impl Defer {
             waker.wake();
         }
     }
-
-    #[cfg(tokio_taskdump)]
-    pub(crate) fn take_deferred(&self) -> Vec<Waker> {
-        let mut deferred = self.deferred.borrow_mut();
-        std::mem::take(&mut *deferred)
-    }
 }

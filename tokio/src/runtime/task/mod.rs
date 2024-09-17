@@ -357,17 +357,6 @@ impl<S: 'static> Task<S> {
         Task::new(RawTask::fromHeaderPtr(ptr))
     }
 
-    #[cfg(all(
-        tokio_unstable,
-        tokio_taskdump,
-        feature = "rt",
-        target_os = "linux",
-        any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-    ))]
-    pub(super) fn as_raw(&self) -> RawTask {
-        self.rawTask
-    }
-
     fn header(&self) -> &Header {
         self.rawTask.header()
     }
@@ -451,6 +440,7 @@ impl<S: Schedule> UnownedTask<S> {
             rawTask: self.rawTask,
             _p: PhantomData,
         };
+
         mem::forget(self);
 
         // Drop a ref-count since an UnownedTask holds two.
@@ -471,6 +461,7 @@ impl<S: Schedule> UnownedTask<S> {
 
         // Use the other ref-count to poll the task.
         raw.poll();
+
         // Decrement our extra ref-count
         drop(task);
     }

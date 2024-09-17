@@ -216,7 +216,7 @@ impl CurrentThread {
         let core = self.core.take()?;
 
         Some(CoreGuard {
-            context: scheduler::Context::CurrentThread(Context {
+            context: scheduler::ThreadLocalContextEnum::CurrentThread(Context {
                 handle: handle.clone(),
                 core: RefCell::new(Some(core)),
                 defer: Defer::new(),
@@ -592,7 +592,7 @@ impl Schedule for Arc<CurrentThreadSchedulerHandle> {
     }
 
     fn schedule(&self, task: task::Notified<Self>) {
-        use scheduler::Context::CurrentThread;
+        use scheduler::ThreadLocalContextEnum::CurrentThread;
 
         context::with_scheduler(|maybe_cx| match maybe_cx {
             Some(CurrentThread(cx)) if Arc::ptr_eq(self, &cx.handle) => {
@@ -639,7 +639,7 @@ impl Wake for CurrentThreadSchedulerHandle {
 /// Used to ensure we always place the `Core` value back into its slot in
 /// `CurrentThread`, even if the future panics.
 struct CoreGuard<'a> {
-    context: scheduler::Context,
+    context: scheduler::ThreadLocalContextEnum,
     scheduler: &'a CurrentThread,
 }
 

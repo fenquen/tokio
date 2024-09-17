@@ -36,29 +36,29 @@ pub(crate) fn enter_runtime<F, R>(handle: &scheduler::SchedulerHandleEnum, allow
 where
     F: FnOnce(&mut BlockingRegionGuard) -> R,
 {
-    let maybe_guard = CONTEXT.with(|c| {
-        if c.runtime.get().is_entered() {
-            None
-        } else {
-            // Set the entered flag
-            c.runtime.set(EnterRuntime::Entered {
-                allow_block_in_place,
-            });
-
-            // Generate a new seed
-            let rng_seed = handle.seed_generator().next_seed();
-
-            // Swap the RNG seed
-            let mut rng = c.rng.get().unwrap_or_else(FastRand::new);
-            let old_seed = rng.replace_seed(rng_seed);
-            c.rng.set(Some(rng));
-
-            Some(EnterRuntimeGuard {
-                blocking: BlockingRegionGuard::new(),
-                handle: c.set_current(handle),
-                old_seed,
-            })
+    let maybe_guard = CONTEXT.with(|context| {
+        if context.enterRuntime.get().is_entered() {
+            return None;
         }
+
+        // Set the entered flag
+        context.enterRuntime.set(EnterRuntime::Entered {
+            allow_block_in_place,
+        });
+
+        // Generate a new seed
+        let rng_seed = handle.seed_generator().next_seed();
+
+        // Swap the RNG seed
+        let mut rng = context.rng.get().unwrap_or_else(FastRand::new);
+        let old_seed = rng.replace_seed(rng_seed);
+        context.rng.set(Some(rng));
+
+        Some(EnterRuntimeGuard {
+            blocking: BlockingRegionGuard::new(),
+            handle: context.set_current(handle),
+            old_seed,
+        })
     });
 
     if let Some(mut guard) = maybe_guard {
@@ -82,8 +82,10 @@ impl fmt::Debug for EnterRuntimeGuard {
 impl Drop for EnterRuntimeGuard {
     fn drop(&mut self) {
         CONTEXT.with(|c| {
-            assert!(c.runtime.get().is_entered());
-            c.runtime.set(EnterRuntime::NotEntered);
+            assert!(c.enterRuntime.get().is_entered());
+
+            c.enterRuntime.set(EnterRuntime::NotEntered);
+
             // Replace the previous RNG seed
             let mut rng = c.rng.get().unwrap_or_else(FastRand::new);
             rng.replace_seed(self.old_seed.clone());

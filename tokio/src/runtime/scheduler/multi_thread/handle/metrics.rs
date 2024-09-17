@@ -10,7 +10,7 @@ impl MultiThreadSchedulerHandle {
     }
 
     pub(crate) fn num_alive_tasks(&self) -> usize {
-        self.shared.owned.num_alive_tasks()
+        self.shared.ownedTasks.num_alive_tasks()
     }
 
     cfg_unstable_metrics! {

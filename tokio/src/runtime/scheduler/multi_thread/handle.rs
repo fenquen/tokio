@@ -52,7 +52,7 @@ impl MultiThreadSchedulerHandle {
         T: Future + Send + 'static,
         T::Output: Send + 'static,
     {
-        let (handle, notified) = me.shared.owned.bind(future, me.clone(), id);
+        let (handle, notified) = me.shared.ownedTasks.bind(future, me.clone(), id);
 
         me.task_hooks.spawn(&TaskMeta {
             _phantom: Default::default(),

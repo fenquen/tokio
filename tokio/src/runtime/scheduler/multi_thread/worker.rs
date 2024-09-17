@@ -158,7 +158,7 @@ pub(crate) struct Shared {
     idle: Idle,
 
     /// Collection of all active tasks spawned onto this executor.
-    pub(crate) owned: OwnedTasks<Arc<MultiThreadSchedulerHandle>>,
+    pub(crate) ownedTasks: OwnedTasks<Arc<MultiThreadSchedulerHandle>>,
 
     /// Data synchronized by the scheduler mutex
     pub(super) synced: Mutex<Synced>,
@@ -207,7 +207,7 @@ struct Remote {
 }
 
 /// Thread-local context
-pub(crate) struct Context {
+pub(crate) struct MultiThreadThreadLocalContext {
     /// Worker
     worker: Arc<Worker>,
 
@@ -299,7 +299,7 @@ pub(super) fn create(workerCount: usize,
             remotes: remotes.into_boxed_slice(),
             inject,
             idle,
-            owned: OwnedTasks::new(workerCount),
+            ownedTasks: OwnedTasks::new(workerCount),
             synced: Mutex::new(Synced {
                 idle: idle_synced,
                 inject: inject_synced,
@@ -484,30 +484,30 @@ fn run(worker: Arc<Worker>) {
 
     let handle = scheduler::SchedulerHandleEnum::MultiThread(worker.multiThreadSchedulerHandle.clone());
 
-    crate::runtime::context::enter_runtime(&handle, true, |_| {
+    context::enter_runtime(&handle, true, |_| {
         // Set the worker context.
-        let cx = scheduler::Context::MultiThread(Context {
+        let threadLocalContextEnum = scheduler::ThreadLocalContextEnum::MultiThread(MultiThreadThreadLocalContext {
             worker,
             core: RefCell::new(None),
             defer: Defer::new(),
         });
 
-        context::set_scheduler(&cx, || {
-            let cx = cx.expect_multi_thread();
+        context::set_scheduler(&threadLocalContextEnum, || {
+            let multiThreadThreadLocalContext = threadLocalContextEnum.expect_multi_thread();
 
             // This should always be an error. It only returns a `Result` to support
             // using `?` to short circuit.
-            assert!(cx.run(core).is_err());
+            assert!(multiThreadThreadLocalContext.run(core).is_err());
 
             // Check if there are any deferred tasks to notify. This can happen when
             // the worker core is lost due to `block_in_place()` being called from
             // within the task.
-            cx.defer.wake();
+            multiThreadThreadLocalContext.defer.wake();
         });
     });
 }
 
-impl Context {
+impl MultiThreadThreadLocalContext {
     fn run(&self, mut core: Box<Core>) -> RunResult {
         // Reset `lifo_enabled` here in case the core was previously stolen from
         // a task that had the LIFO slot disabled.
@@ -539,8 +539,7 @@ impl Context {
             // We consumed all work in the queues and will start searching for work.
             core.stats.end_processing_scheduled_tasks();
 
-            // There is no more **local** work to process, try to steal work
-            // from other workers.
+            // There is no more **local** work to process, try to steal work from other workers.
             if let Some(task) = core.steal_work(&self.worker) {
                 // Found work, switch back to processing
                 core.stats.start_processing_scheduled_tasks();
@@ -552,18 +551,21 @@ impl Context {
                 } else {
                     self.park(core)
                 };
+
                 core.stats.start_processing_scheduled_tasks();
             }
         }
 
         core.pre_shutdown(&self.worker);
+
         // Signal shutdown
         self.worker.multiThreadSchedulerHandle.shutdown_core(core);
+
         Err(())
     }
 
     fn run_task(&self, task: Notified, mut core: Box<Core>) -> RunResult {
-        let task = self.worker.multiThreadSchedulerHandle.shared.owned.assert_owner(task);
+        let localNotified = self.worker.multiThreadSchedulerHandle.shared.ownedTasks.assert_owner(task);
 
         // Make sure the worker is not in the **searching** state. This enables
         // another idle worker to try to steal work.
@@ -582,7 +584,8 @@ impl Context {
 
         // Run the task
         coop::budget(|| {
-            task.run();
+            localNotified.run();
+
             let mut lifo_polls = 0;
 
             // As long as there is budget remaining and a task exists in the
@@ -644,7 +647,7 @@ impl Context {
 
                 // Run the LIFO task, then loop
                 *self.core.borrow_mut() = Some(core);
-                let task = self.worker.multiThreadSchedulerHandle.shared.owned.assert_owner(task);
+                let task = self.worker.multiThreadSchedulerHandle.shared.ownedTasks.assert_owner(task);
                 task.run();
             }
         })
@@ -655,10 +658,7 @@ impl Context {
     }
 
     fn assert_lifo_enabled_is_correct(&self, core: &Core) {
-        debug_assert_eq!(
-            core.lifo_enabled,
-            !self.worker.multiThreadSchedulerHandle.shared.config.disable_lifo_slot
-        );
+        debug_assert_eq!(core.lifo_enabled, !self.worker.multiThreadSchedulerHandle.shared.config.disable_lifo_slot);
     }
 
     fn maintenance(&self, mut core: Box<Core>) -> Box<Core> {
@@ -699,8 +699,7 @@ impl Context {
         if core.transition_to_parked(&self.worker) {
             while !core.is_shutdown && !core.is_traced {
                 core.stats.about_to_park();
-                core.stats
-                    .submit(&self.worker.multiThreadSchedulerHandle.shared.worker_metrics[self.worker.index]);
+                core.stats.submit(&self.worker.multiThreadSchedulerHandle.shared.worker_metrics[self.worker.index]);
 
                 core = self.park_timeout(core, None);
 
@@ -718,6 +717,7 @@ impl Context {
         if let Some(f) = &self.worker.multiThreadSchedulerHandle.shared.config.after_unpark {
             f();
         }
+
         core
     }
 
@@ -774,10 +774,7 @@ impl Core {
             // Update the global queue interval, if needed
             self.tune_global_queue_interval(worker);
 
-            worker
-                .multiThreadSchedulerHandle
-                .next_remote_task()
-                .or_else(|| self.next_local_task())
+            worker.multiThreadSchedulerHandle.next_remote_task().or_else(|| self.next_local_task())
         } else {
             let maybe_task = self.next_local_task();
 
@@ -976,12 +973,12 @@ impl Core {
         // Start from a random inner list
         let start = self
             .rand
-            .fastrand_n(worker.multiThreadSchedulerHandle.shared.owned.get_shard_size() as u32);
+            .fastrand_n(worker.multiThreadSchedulerHandle.shared.ownedTasks.get_shard_size() as u32);
         // Signal to all tasks to shut down.
         worker
             .multiThreadSchedulerHandle
             .shared
-            .owned
+            .ownedTasks
             .close_and_shutdown_all(start as usize);
 
         self.stats
@@ -1021,7 +1018,7 @@ impl Worker {
 // TODO: Move `Handle` impls into handle.rs
 impl task::Schedule for Arc<MultiThreadSchedulerHandle> {
     fn release(&self, task: &Task) -> Option<Task> {
-        self.shared.owned.remove(task)
+        self.shared.ownedTasks.remove(task)
     }
 
     fn schedule(&self, task: Notified) {
@@ -1179,7 +1176,7 @@ impl MultiThreadSchedulerHandle {
             return;
         }
 
-        debug_assert!(self.shared.owned.is_empty());
+        debug_assert!(self.shared.ownedTasks.is_empty());
 
         for mut core in cores.drain(..) {
             core.shutdown(self);
@@ -1234,8 +1231,8 @@ impl<'a> Lock<inject::Synced> for &'a MultiThreadSchedulerHandle {
 }
 
 #[track_caller]
-fn with_current<R>(f: impl FnOnce(Option<&Context>) -> R) -> R {
-    use scheduler::Context::MultiThread;
+fn with_current<R>(f: impl FnOnce(Option<&MultiThreadThreadLocalContext>) -> R) -> R {
+    use scheduler::ThreadLocalContextEnum::MultiThread;
 
     context::with_scheduler(|ctx| match ctx {
         Some(MultiThread(ctx)) => f(Some(ctx)),

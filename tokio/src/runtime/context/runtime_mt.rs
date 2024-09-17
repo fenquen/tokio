@@ -2,7 +2,7 @@ use super::{EnterRuntime, CONTEXT};
 
 /// Returns true if in a runtime context.
 pub(crate) fn current_enter_context() -> EnterRuntime {
-    CONTEXT.with(|c| c.runtime.get())
+    CONTEXT.with(|c| c.enterRuntime.get())
 }
 
 /// Forces the current "entered" state to be cleared while the closure
@@ -15,18 +15,18 @@ pub(crate) fn exit_runtime<F: FnOnce() -> R, R>(f: F) -> R {
         fn drop(&mut self) {
             CONTEXT.with(|c| {
                 assert!(
-                    !c.runtime.get().is_entered(),
+                    !c.enterRuntime.get().is_entered(),
                     "closure claimed permanent executor"
                 );
-                c.runtime.set(self.0);
+                c.enterRuntime.set(self.0);
             });
         }
     }
 
     let was = CONTEXT.with(|c| {
-        let e = c.runtime.get();
+        let e = c.enterRuntime.get();
         assert!(e.is_entered(), "asked to exit when not entered");
-        c.runtime.set(EnterRuntime::NotEntered);
+        c.enterRuntime.set(EnterRuntime::NotEntered);
         e
     });
 

@@ -44,7 +44,7 @@ struct Context {
 
     /// Handle to the scheduler's internal "context"
     #[cfg(feature = "rt")]
-    scheduler: Scoped<scheduler::Context>,
+    threadLocalContextEnum: Scoped<scheduler::ThreadLocalContextEnum>,
 
     #[cfg(feature = "rt")]
     current_task_id: Cell<Option<Id>>,
@@ -55,7 +55,7 @@ struct Context {
     /// is because other runtime handles may be set to current from
     /// within a runtime.
     #[cfg(feature = "rt")]
-    runtime: Cell<EnterRuntime>,
+    enterRuntime: Cell<EnterRuntime>,
 
     #[cfg(any(feature = "rt", feature = "macros", feature = "time"))]
     rng: Cell<Option<FastRand>>,
@@ -77,7 +77,7 @@ thread_local! {
 
             // Tracks the current scheduler internal context
             #[cfg(feature = "rt")]
-            scheduler: Scoped::new(),
+            threadLocalContextEnum: Scoped::new(),
 
             #[cfg(feature = "rt")]
             current_task_id: Cell::new(None),
@@ -88,7 +88,7 @@ thread_local! {
             // is because other runtime handles may be set to current from
             // within a runtime.
             #[cfg(feature = "rt")]
-            runtime: Cell::new(EnterRuntime::NotEntered),
+            enterRuntime: Cell::new(EnterRuntime::NotEntered),
 
             #[cfg(any(feature = "rt", feature = "macros", feature = "time"))]
             rng: Cell::new(None),
@@ -149,14 +149,14 @@ cfg_rt! {
         });
     }
 
-    pub(super) fn set_scheduler<R>(v: &scheduler::Context, f: impl FnOnce() -> R) -> R {
-        CONTEXT.with(|c| c.scheduler.set(v, f))
+    pub(super) fn set_scheduler<R>(v: &scheduler::ThreadLocalContextEnum, f: impl FnOnce() -> R) -> R {
+        CONTEXT.with(|c| c.threadLocalContextEnum.set(v, f))
     }
 
     #[track_caller]
-    pub(super) fn with_scheduler<R>(f: impl FnOnce(Option<&scheduler::Context>) -> R) -> R {
+    pub(super) fn with_scheduler<R>(f: impl FnOnce(Option<&scheduler::ThreadLocalContextEnum>) -> R) -> R {
         let mut f = Some(f);
-        CONTEXT.try_with(|c| c.scheduler.with(f.take().unwrap())).unwrap_or_else(|_| (f.take().unwrap())(None))
+        CONTEXT.try_with(|c| c.threadLocalContextEnum.with(f.take().unwrap())).unwrap_or_else(|_| (f.take().unwrap())(None))
     }
 
     cfg_taskdump! {

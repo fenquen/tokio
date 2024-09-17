@@ -660,11 +660,11 @@ impl Drop for TimerEntry {
 cfg_rt! {
     fn generate_shard_id(shard_size: u32) -> u32 {
         let id = context::with_scheduler(|ctx| match ctx {
-            Some(scheduler::Context::CurrentThread(_ctx)) => 0,
+            Some(scheduler::ThreadLocalContextEnum::CurrentThread(_ctx)) => 0,
             #[cfg(feature = "rt-multi-thread")]
-            Some(scheduler::Context::MultiThread(ctx)) => ctx.get_worker_index() as u32,
+            Some(scheduler::ThreadLocalContextEnum::MultiThread(ctx)) => ctx.get_worker_index() as u32,
             #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            Some(scheduler::Context::MultiThreadAlt(ctx)) => ctx.get_worker_index() as u32,
+            Some(scheduler::ThreadLocalContextEnum::MultiThreadAlt(ctx)) => ctx.get_worker_index() as u32,
             None => context::thread_rng_n(shard_size),
         });
         id % shard_size

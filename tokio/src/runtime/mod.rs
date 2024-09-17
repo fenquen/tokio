@@ -401,14 +401,6 @@ cfg_rt! {
     pub(crate) mod metrics;
     pub use metrics::RuntimeMetrics;
 
-    cfg_unstable_metrics! {
-        pub use metrics::HistogramScale;
-
-        cfg_net! {
-            pub(crate) use metrics::IoDriverMetrics;
-        }
-    }
-
     pub(crate) use metrics::{MetricsBatch, SchedulerMetrics, WorkerMetrics, HistogramBuilder};
 
     /// After thread starts / before thread stops
