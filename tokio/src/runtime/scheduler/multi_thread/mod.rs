@@ -21,7 +21,7 @@ pub(crate) use park::{Parker, UnParker};
 pub(crate) mod queue;
 
 mod worker;
-pub(crate) use worker::{MultiThreadThreadLocalContext, Launcher, Shared};
+pub(crate) use worker::{MultiThreadThreadLocalContext, Launcher, workerSharedState};
 
 cfg_taskdump! {
     mod trace;

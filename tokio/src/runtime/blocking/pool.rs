@@ -22,7 +22,7 @@ pub(crate) struct BlockingPool {
 
 #[derive(Clone)]
 pub(crate) struct Spawner {
-    inner: Arc<Inner>,
+    spawnInner: Arc<Inner>,
 }
 
 impl Spawner {
@@ -97,32 +97,31 @@ impl Spawner {
 
         let (unownedTask, handle) = task::unowned(blockingTask, BlockingSchedule::new(runtimeHandle), taskId);
 
-        let spawned = self.spawn_task(Task::new(unownedTask, mandatory), runtimeHandle);
+        let spawned = self.spawn_task(PoolTask::new(unownedTask, mandatory), runtimeHandle);
 
         (handle, spawned)
     }
 
-    fn spawn_task(&self, task: Task, rt: &RuntimeHandle) -> Result<(), SpawnError> {
-        let mut shared = self.inner.shared.lock();
+    fn spawn_task(&self, poolTask: PoolTask, rt: &RuntimeHandle) -> Result<(), SpawnError> {
+        let mut shared = self.spawnInner.shared.lock();
 
         if shared.shutdown {
             // Shutdown the task: it's fine to shutdown this task (even if
             // mandatory) because it was scheduled after the shutdown of the
             // runtime began.
-            task.unownedTask.shutdown();
+            poolTask.unownedTask.shutdown();
 
             // no need to even push this task; it would never get picked up
             return Err(SpawnError::ShuttingDown);
         }
 
-        shared.queue.push_back(task);
-        self.inner.metrics.inc_queue_depth();
+        shared.poolTaskQueue.push_back(poolTask);
+        self.spawnInner.metrics.inc_queue_depth();
 
-        if self.inner.metrics.num_idle_threads() == 0 {
-            // No threads are able to process the task.
-
-            if self.inner.metrics.num_threads() == self.inner.thread_cap {
-                // At max number of threads
+        // No threads are able to process the task.
+        if self.spawnInner.metrics.num_idle_threads() == 0 {
+            // At max number of threads
+            if self.spawnInner.metrics.num_threads() == self.spawnInner.thread_cap {
             } else {
                 assert!(shared.shutdown_tx.is_some());
 
@@ -133,11 +132,11 @@ impl Spawner {
 
                     match self.spawn_thread(shutdown_tx, rt, id) {
                         Ok(handle) => {
-                            self.inner.metrics.inc_num_threads();
+                            self.spawnInner.metrics.inc_num_threads();
                             shared.worker_thread_index += 1;
                             shared.worker_threads.insert(id, handle);
                         }
-                        Err(ref e) if is_temporary_os_thread_error(e) && self.inner.metrics.num_threads() > 0 => {
+                        Err(ref e) if is_temporary_os_thread_error(e) && self.spawnInner.metrics.num_threads() > 0 => {
                             // OS temporarily failed to spawn a new thread.
                             // The task will be picked up eventually by a currently
                             // busy thread.
@@ -156,31 +155,31 @@ impl Spawner {
             // exactly. Thread libraries may generate spurious
             // wakeups, this counter is used to keep us in a
             // consistent state.
-            self.inner.metrics.dec_num_idle_threads();
+            self.spawnInner.metrics.dec_num_idle_threads();
             shared.num_notify += 1;
-            self.inner.condvar.notify_one();
+            self.spawnInner.condvar.notify_one();
         }
 
         Ok(())
     }
 
     fn spawn_thread(&self,
-                    shutdown_tx: shutdown::Sender,
-                    rt: &RuntimeHandle,
-                    id: usize) -> io::Result<thread::JoinHandle<()>> {
-        let mut builder = thread::Builder::new().name((self.inner.thread_name)());
+                    shutdownSignalSender: shutdown::Sender,
+                    runtimeHandle: &RuntimeHandle,
+                    workerThreadId: usize) -> io::Result<thread::JoinHandle<()>> {
+        let mut threadBuilder = thread::Builder::new().name((self.spawnInner.thread_name)());
 
-        if let Some(stack_size) = self.inner.stack_size {
-            builder = builder.stack_size(stack_size);
+        if let Some(stack_size) = self.spawnInner.stack_size {
+            threadBuilder = threadBuilder.stack_size(stack_size);
         }
 
-        let rt = rt.clone();
+        let runtimeHandle = runtimeHandle.clone();
 
-        builder.spawn(move || {
+        threadBuilder.spawn(move || {
             // Only the reference should be moved into the closure
-            let _enter = rt.enter();
-            rt.schedulerHandleEnum.getBlockingSpawner().inner.run(id);
-            drop(shutdown_tx);
+            let _enter = runtimeHandle.enter();
+            runtimeHandle.schedulerHandleEnum.getBlockingSpawner().spawnInner.run(workerThreadId);
+            drop(shutdownSignalSender);
         })
     }
 }
@@ -262,7 +261,7 @@ struct Inner {
 }
 
 struct Shared {
-    queue: VecDeque<Task>,
+    poolTaskQueue: VecDeque<PoolTask>,
     num_notify: u32,
     shutdown: bool,
     shutdown_tx: Option<shutdown::Sender>,
@@ -275,12 +274,11 @@ struct Shared {
     /// This holds the `JoinHandles` for all running threads; on shutdown, the thread
     /// calling shutdown handles joining on these.
     worker_threads: HashMap<usize, thread::JoinHandle<()>>,
-    /// This is a counter used to iterate `worker_threads` in a consistent order (for loom's
-    /// benefit).
+    /// This is a counter used to iterate `worker_threads` in a consistent order (for loom's benefit).
     worker_thread_index: usize,
 }
 
-pub(crate) struct Task {
+pub(crate) struct PoolTask {
     unownedTask: task::UnownedTask<BlockingSchedule>,
     mandatory: Mandatory,
 }
@@ -311,9 +309,9 @@ impl From<SpawnError> for io::Error {
     }
 }
 
-impl Task {
-    pub(crate) fn new(unownedTask: task::UnownedTask<BlockingSchedule>, mandatory: Mandatory) -> Task {
-        Task { unownedTask, mandatory }
+impl PoolTask {
+    pub(crate) fn new(unownedTask: task::UnownedTask<BlockingSchedule>, mandatory: Mandatory) -> PoolTask {
+        PoolTask { unownedTask, mandatory }
     }
 
     fn run(self) {
@@ -344,8 +342,7 @@ where
 }
 
 cfg_fs! {
-    #[cfg_attr(any(
-        all(loom, not(test)), // the function is covered by loom tests
+    #[cfg_attr(any(all(loom, not(test)), // the function is covered by loom tests
         test
     ), allow(dead_code))]
     /// Runs the provided function on an executor dedicated to blocking
@@ -369,9 +366,9 @@ impl BlockingPool {
 
         BlockingPool {
             spawner: Spawner {
-                inner: Arc::new(Inner {
+                spawnInner: Arc::new(Inner {
                     shared: Mutex::new(Shared {
-                        queue: VecDeque::new(),
+                        poolTaskQueue: VecDeque::new(),
                         num_notify: 0,
                         shutdown: false,
                         shutdown_tx: Some(shutdown_tx),
@@ -398,7 +395,7 @@ impl BlockingPool {
     }
 
     pub(crate) fn shutdown(&mut self, timeout: Option<Duration>) {
-        let mut shared = self.spawner.inner.shared.lock();
+        let mut shared = self.spawner.spawnInner.shared.lock();
 
         // The function can be called multiple times. First, by explicitly
         // calling `shutdown` then by the drop handler calling `shutdown`. This
@@ -409,7 +406,7 @@ impl BlockingPool {
 
         shared.shutdown = true;
         shared.shutdown_tx = None;
-        self.spawner.inner.condvar.notify_all();
+        self.spawner.spawnInner.condvar.notify_all();
 
         let last_exited_thread = std::mem::take(&mut shared.last_exiting_thread);
         let workers = std::mem::take(&mut shared.worker_threads);
@@ -447,22 +444,6 @@ impl fmt::Debug for BlockingPool {
     }
 }
 
-cfg_unstable_metrics! {
-    impl Spawner {
-        pub(crate) fn num_threads(&self) -> usize {
-            self.inner.metrics.num_threads()
-        }
-
-        pub(crate) fn num_idle_threads(&self) -> usize {
-            self.inner.metrics.num_idle_threads()
-        }
-
-        pub(crate) fn queue_depth(&self) -> usize {
-            self.inner.metrics.queue_depth()
-        }
-    }
-}
-
 // Tells whether the error when spawning a thread is temporary.
 #[inline]
 fn is_temporary_os_thread_error(error: &io::Error) -> bool {
@@ -481,10 +462,10 @@ impl Inner {
         'main:
         loop {
             // BUSY
-            while let Some(task) = shared.queue.pop_front() {
+            while let Some(poolTask) = shared.poolTaskQueue.pop_front() {
                 self.metrics.dec_queue_depth();
                 drop(shared);
-                task.run();
+                poolTask.run();
 
                 shared = self.shared.lock();
             }
@@ -523,7 +504,7 @@ impl Inner {
 
             if shared.shutdown {
                 // Drain the queue
-                while let Some(task) = shared.queue.pop_front() {
+                while let Some(task) = shared.poolTaskQueue.pop_front() {
                     self.metrics.dec_queue_depth();
                     drop(shared);
 

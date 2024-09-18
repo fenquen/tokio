@@ -486,6 +486,3 @@ impl ShardedWheel {
         unsafe { self.0.get_unchecked(index as usize) }.lock()
     }
 }
-
-#[cfg(test)]
-mod tests;

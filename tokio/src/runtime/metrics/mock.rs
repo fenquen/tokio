@@ -4,13 +4,6 @@ use std::thread::ThreadId;
 
 pub(crate) struct SchedulerMetrics {}
 
-pub(crate) struct WorkerMetrics {}
-
-pub(crate) struct MetricsBatch {}
-
-#[derive(Clone, Default)]
-pub(crate) struct HistogramBuilder {}
-
 impl SchedulerMetrics {
     pub(crate) fn new() -> Self {
         Self {}
@@ -19,6 +12,8 @@ impl SchedulerMetrics {
     /// Increment the number of tasks scheduled externally
     pub(crate) fn inc_remote_schedule_count(&self) {}
 }
+
+pub(crate) struct WorkerMetrics {}
 
 impl WorkerMetrics {
     pub(crate) fn new() -> Self {
@@ -35,6 +30,12 @@ impl WorkerMetrics {
     pub(crate) fn set_thread_id(&self, _thread_id: ThreadId) {}
 }
 
+
+#[derive(Clone, Default)]
+pub(crate) struct HistogramBuilder {}
+
+pub(crate) struct MetricsBatch {}
+
 impl MetricsBatch {
     pub(crate) fn new(_: &WorkerMetrics) -> Self {
         Self {}
@@ -50,10 +51,11 @@ impl MetricsBatch {
     pub(crate) fn end_poll(&mut self) {}
 }
 
-cfg_rt_multi_thread! {
-    impl MetricsBatch {
-        pub(crate) fn incr_steal_count(&mut self, _by: u16) {}
-        pub(crate) fn incr_steal_operations(&mut self) {}
-        pub(crate) fn incr_overflow_count(&mut self) {}
-    }
+#[cfg(feature = "rt-multi-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
+impl MetricsBatch {
+    pub(crate) fn incr_steal_count(&mut self, _by: u16) {}
+    pub(crate) fn incr_steal_operations(&mut self) {}
+    pub(crate) fn incr_overflow_count(&mut self) {}
 }
+

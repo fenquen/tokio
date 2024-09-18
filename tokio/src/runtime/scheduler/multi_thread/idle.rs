@@ -1,14 +1,13 @@
 //! Coordinates idling workers
 
 use crate::loom::sync::atomic::AtomicUsize;
-use crate::runtime::scheduler::multi_thread::Shared;
+use crate::runtime::scheduler::multi_thread::workerSharedState;
 
 use std::fmt;
 use std::sync::atomic::Ordering::{self, SeqCst};
 
 pub(super) struct Idle {
-    /// Tracks both the number of searching workers and the number of unparked
-    /// workers.
+    /// Tracks both the number of searching workers and the number of unparked workers.
     ///
     /// Used as a fast-path to avoid acquiring the lock when needed.
     state: AtomicUsize,
@@ -18,7 +17,7 @@ pub(super) struct Idle {
 }
 
 /// Data synchronized by the scheduler mutex
-pub(super) struct Synced {
+pub(super) struct IdleSyncState {
     /// Sleeping workers
     sleepers: Vec<usize>,
 }
@@ -31,7 +30,7 @@ const SEARCH_MASK: usize = (1 << UNPARK_SHIFT) - 1;
 struct State(usize);
 
 impl Idle {
-    pub(super) fn new(num_workers: usize) -> (Idle, Synced) {
+    pub(super) fn new(num_workers: usize) -> (Idle, IdleSyncState) {
         let init = State::new(num_workers);
 
         let idle = Idle {
@@ -39,7 +38,7 @@ impl Idle {
             num_workers,
         };
 
-        let synced = Synced {
+        let synced = IdleSyncState {
             sleepers: Vec::with_capacity(num_workers),
         };
 
@@ -48,7 +47,7 @@ impl Idle {
 
     /// If there are no workers actively searching, returns the index of a
     /// worker currently sleeping.
-    pub(super) fn worker_to_notify(&self, shared: &Shared) -> Option<usize> {
+    pub(super) fn worker_to_notify(&self, shared: &workerSharedState) -> Option<usize> {
         // If at least one worker is spinning, work being notified will
         // eventually be found. A searching thread will find **some** work and
         // notify another worker, eventually leading to our work being found.
@@ -75,20 +74,17 @@ impl Idle {
         State::unpark_one(&self.state, 1);
 
         // Get the worker to unpark
-        let ret = lock.idle.sleepers.pop();
+        let ret = lock.idleSyncState.sleepers.pop();
         debug_assert!(ret.is_some());
 
         ret
     }
 
-    /// Returns `true` if the worker needs to do a final check for submitted
-    /// work.
-    pub(super) fn transition_worker_to_parked(
-        &self,
-        shared: &Shared,
-        worker: usize,
-        is_searching: bool,
-    ) -> bool {
+    /// Returns `true` if the worker needs to do a final check for submitted work.
+    pub(super) fn transition_worker_to_parked(&self,
+                                              shared: &workerSharedState,
+                                              worker: usize,
+                                              is_searching: bool) -> bool {
         // Acquire the lock
         let mut lock = shared.synced.lock();
 
@@ -96,7 +92,7 @@ impl Idle {
         let ret = State::dec_num_unparked(&self.state, is_searching);
 
         // Track the sleeping worker
-        lock.idle.sleepers.push(worker);
+        lock.idleSyncState.sleepers.push(worker);
 
         ret
     }
@@ -126,9 +122,9 @@ impl Idle {
     /// within the worker's park routine.
     ///
     /// Returns `true` if the worker was parked before calling the method.
-    pub(super) fn unpark_worker_by_id(&self, shared: &Shared, worker_id: usize) -> bool {
+    pub(super) fn unpark_worker_by_id(&self, shared: &workerSharedState, worker_id: usize) -> bool {
         let mut lock = shared.synced.lock();
-        let sleepers = &mut lock.idle.sleepers;
+        let sleepers = &mut lock.idleSyncState.sleepers;
 
         for index in 0..sleepers.len() {
             if sleepers[index] == worker_id {
@@ -145,9 +141,9 @@ impl Idle {
     }
 
     /// Returns `true` if `worker_id` is contained in the sleep set.
-    pub(super) fn is_parked(&self, shared: &Shared, worker_id: usize) -> bool {
+    pub(super) fn is_parked(&self, shared: &workerSharedState, worker_id: usize) -> bool {
         let lock = shared.synced.lock();
-        lock.idle.sleepers.contains(&worker_id)
+        lock.idleSyncState.sleepers.contains(&worker_id)
     }
 
     fn notify_should_wakeup(&self) -> bool {

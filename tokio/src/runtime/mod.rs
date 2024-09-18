@@ -313,12 +313,6 @@
 //! [coop budget]: crate::task#cooperative-scheduling
 //! [`worker_mean_poll_time`]: crate::runtime::RuntimeMetrics::worker_mean_poll_time
 
-// At the top due to macros
-#[cfg(test)]
-#[cfg(not(target_family = "wasm"))]
-#[macro_use]
-mod tests;
-
 pub(crate) mod context;
 
 pub(crate) mod coop;

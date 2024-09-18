@@ -5,8 +5,7 @@ use std::time::{Duration, Instant};
 /// Per-worker statistics. This is used for both tuning the scheduler and
 /// reporting runtime-level metrics/stats.
 pub(crate) struct Stats {
-    /// The metrics batch used to report runtime-level metrics/stats to the
-    /// user.
+    /// The metrics batch used to report runtime-level metrics/stats to the user.
     batch: MetricsBatch,
 
     /// Instant at which work last resumed (continued after park).

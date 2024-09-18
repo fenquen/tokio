@@ -200,11 +200,9 @@ struct LocalPool {
 impl LocalPool {
     /// Spawn a `?Send` future onto a worker
     #[track_caller]
-    fn spawn_pinned<F, Fut>(
-        &self,
-        create_task: F,
-        worker_choice: WorkerChoice,
-    ) -> JoinHandle<Fut::Output>
+    fn spawn_pinned<F, Fut>(&self,
+                            create_task: F,
+                            worker_choice: WorkerChoice) -> JoinHandle<Fut::Output>
     where
         F: FnOnce() -> Fut,
         F: Send + 'static,

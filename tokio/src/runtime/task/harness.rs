@@ -134,11 +134,7 @@ impl RawTask {
     }
 }
 
-impl<T, S> Harness<T, S>
-where
-    T: Future,
-    S: Schedule,
-{
+impl<T: Future, S: Schedule> Harness<T, S> {
     pub(super) fn drop_reference(self) {
         if self.state().ref_dec() {
             self.dealloc();

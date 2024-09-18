@@ -1,4 +1,4 @@
-use super::{Core, MultiThreadSchedulerHandle, Shared};
+use super::{Core, MultiThreadSchedulerHandle, workerSharedState};
 
 use crate::loom::sync::Arc;
 use crate::runtime::scheduler::multi_thread::Stats;
@@ -18,7 +18,7 @@ impl MultiThreadSchedulerHandle {
         // wait for other workers, or timeout without tracing
         let timeout = Duration::from_millis(250); // a _very_ generous timeout
         let barrier =
-            if let Some(barrier) = self.shared.trace_status.trace_start.wait_timeout(timeout) {
+            if let Some(barrier) = self.workerSharedState.trace_status.trace_start.wait_timeout(timeout) {
                 barrier
             } else {
                 // don't attempt to trace
@@ -27,16 +27,16 @@ impl MultiThreadSchedulerHandle {
 
         if !barrier.is_leader() {
             // wait for leader to finish tracing
-            self.shared.trace_status.trace_end.wait();
+            self.workerSharedState.trace_status.trace_end.wait();
             return core;
         }
 
         // trace
 
-        let owned = &self.shared.ownedTasks;
-        let mut local = self.shared.steal_all();
-        let synced = &self.shared.synced;
-        let injection = &self.shared.inject;
+        let owned = &self.workerSharedState.ownedTasks;
+        let mut local = self.workerSharedState.steal_all();
+        let synced = &self.workerSharedState.synced;
+        let injection = &self.workerSharedState.injectShared;
 
         // safety: `trace_multi_thread` is invoked with the same `synced` that `injection`
         // was created with.
@@ -48,16 +48,16 @@ impl MultiThreadSchedulerHandle {
         let result = dump::Dump::new(traces);
 
         // stash the result
-        self.shared.trace_status.stash_result(result);
+        self.workerSharedState.trace_status.stash_result(result);
 
         // allow other workers to proceed
-        self.shared.trace_status.trace_end.wait();
+        self.workerSharedState.trace_status.trace_end.wait();
 
         core
     }
 }
 
-impl Shared {
+impl workerSharedState {
     /// Steal all tasks from remotes into a single local queue.
     pub(super) fn steal_all(&self) -> super::queue::Local<Arc<MultiThreadSchedulerHandle>> {
         let (_steal, mut local) = super::queue::local();

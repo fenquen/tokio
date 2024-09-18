@@ -346,9 +346,9 @@ where
 
 
 impl<S: 'static> Task<S> {
-    unsafe fn new(raw: RawTask) -> Task<S> {
+    unsafe fn new(rawTask: RawTask) -> Task<S> {
         Task {
-            rawTask: raw,
+            rawTask,
             _p: PhantomData,
         }
     }
@@ -420,20 +420,13 @@ impl<S: Schedule> Task<S> {
 impl<S: Schedule> LocalNotified<S> {
     /// Runs the task.
     pub(crate) fn run(self) {
-        let raw = self.task.rawTask;
+        let rawTask = self.task.rawTask;
         mem::forget(self);
-        raw.poll();
+        rawTask.poll();
     }
 }
 
 impl<S: Schedule> UnownedTask<S> {
-    // Used in test of the inject queue.
-    #[cfg(test)]
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub(super) fn into_notified(self) -> Notified<S> {
-        Notified(self.into_task())
-    }
-
     fn into_task(self) -> Task<S> {
         // Convert into a task.
         let task = Task {
@@ -450,17 +443,17 @@ impl<S: Schedule> UnownedTask<S> {
     }
 
     pub(crate) fn run(self) {
-        let raw = self.rawTask;
+        let rawTask = self.rawTask;
         mem::forget(self);
 
         // Transfer one ref-count to a Task object.
         let task = Task::<S> {
-            rawTask: raw,
+            rawTask,
             _p: PhantomData,
         };
 
         // Use the other ref-count to poll the task.
-        raw.poll();
+        rawTask.poll();
 
         // Decrement our extra ref-count
         drop(task);

@@ -104,8 +104,8 @@ struct Core {
     tick: u32,
 
     /// When a task is scheduled from a worker, it is stored in this slot. The
-    /// worker will check this slot for a task **before** checking the run
-    /// queue. This effectively results in the **last** scheduled task to be run
+    /// worker will check this slot for a task **before** checking the run queue.
+    /// This effectively results in the **last** scheduled task to be run
     /// next (LIFO). This is an optimization for improving locality which
     /// benefits message passing patterns and helps to reduce latency.
     lifo_slot: Option<Notified>,
@@ -137,14 +137,14 @@ struct Core {
     stats: Stats,
 
     /// How often to check the global queue
-    global_queue_interval: u32,
+    checkGlobalQueueInterval: u32,
 
     /// Fast random number generator.
     rand: FastRand,
 }
 
 /// State shared across all workers
-pub(crate) struct Shared {
+pub(crate) struct workerSharedState {
     /// Per-worker remote state. All other workers have access to this and is
     /// how they communicate between each other.
     remotes: Box<[Remote]>,
@@ -152,7 +152,7 @@ pub(crate) struct Shared {
     /// Global task queue used for:
     ///  1. Submit work to the scheduler while **not** currently on a worker thread.
     ///  2. Submit work to the scheduler when a worker run queue is saturated
-    pub(super) inject: inject::Shared<Arc<MultiThreadSchedulerHandle>>,
+    pub(super) injectShared: inject::Shared<Arc<MultiThreadSchedulerHandle>>,
 
     /// Coordinates idle workers
     idle: Idle,
@@ -191,10 +191,10 @@ pub(crate) struct Shared {
 /// Data synchronized by the scheduler mutex
 pub(crate) struct Synced {
     /// Synchronized state for `Idle`.
-    pub(super) idle: idle::Synced,
+    pub(super) idleSyncState: idle::IdleSyncState,
 
     /// Synchronized state for `Inject`.
-    pub(crate) inject: inject::Synced,
+    pub(crate) injectSyncState: inject::InjectSyncState,
 }
 
 /// Used to communicate with a worker from other threads.
@@ -235,9 +235,6 @@ impl Launcher {
 /// to stop processing.
 type RunResult = Result<Box<Core>, ()>;
 
-/// A task handle
-type Task = task::Task<Arc<MultiThreadSchedulerHandle>>;
-
 /// A notified task handle
 type Notified = task::Notified<Arc<MultiThreadSchedulerHandle>>;
 
@@ -275,7 +272,7 @@ pub(super) fn create(workerCount: usize,
             is_shutdown: false,
             is_traced: false,
             park: Some(parker),
-            global_queue_interval: stats.tuned_global_queue_interval(&config),
+            checkGlobalQueueInterval: stats.tuned_global_queue_interval(&config),
             stats,
             rand: FastRand::from_seed(config.seed_generator.next_seed()),
         }));
@@ -295,14 +292,14 @@ pub(super) fn create(workerCount: usize,
             task_spawn_callback: config.before_spawn.clone(),
             task_terminate_callback: config.after_termination.clone(),
         },
-        shared: Shared {
+        workerSharedState: workerSharedState {
             remotes: remotes.into_boxed_slice(),
-            inject,
+            injectShared: inject,
             idle,
             ownedTasks: OwnedTasks::new(workerCount),
             synced: Mutex::new(Synced {
-                idle: idle_synced,
-                inject: inject_synced,
+                idleSyncState: idle_synced,
+                injectSyncState: inject_synced,
             }),
             shutdown_cores: Mutex::new(vec![]),
             trace_status: TraceStatus::new(remotes_len),
@@ -349,7 +346,7 @@ where
                         let core = cx.worker.core.take();
 
                         if core.is_some() {
-                            cx.worker.multiThreadSchedulerHandle.shared.worker_metrics[cx.worker.index]
+                            cx.worker.multiThreadSchedulerHandle.workerSharedState.worker_metrics[cx.worker.index]
                                 .set_thread_id(thread::current().id());
                         }
 
@@ -480,7 +477,7 @@ fn run(worker: Arc<Worker>) {
         None => return,
     };
 
-    worker.multiThreadSchedulerHandle.shared.worker_metrics[worker.index].set_thread_id(thread::current().id());
+    worker.multiThreadSchedulerHandle.workerSharedState.worker_metrics[worker.index].set_thread_id(thread::current().id());
 
     let handle = scheduler::SchedulerHandleEnum::MultiThread(worker.multiThreadSchedulerHandle.clone());
 
@@ -531,8 +528,8 @@ impl MultiThreadThreadLocalContext {
             core = self.maintenance(core);
 
             // First, check work available to the current worker.
-            if let Some(task) = core.next_task(&self.worker) {
-                core = self.run_task(task, core)?;
+            if let Some(notified) = core.next_task(&self.worker) {
+                core = self.run_task(notified, core)?;
                 continue;
             }
 
@@ -540,10 +537,10 @@ impl MultiThreadThreadLocalContext {
             core.stats.end_processing_scheduled_tasks();
 
             // There is no more **local** work to process, try to steal work from other workers.
-            if let Some(task) = core.steal_work(&self.worker) {
+            if let Some(notified) = core.steal_work(&self.worker) {
                 // Found work, switch back to processing
                 core.stats.start_processing_scheduled_tasks();
-                core = self.run_task(task, core)?;
+                core = self.run_task(notified, core)?;
             } else {
                 // Wait for work
                 core = if !self.defer.is_empty() {
@@ -565,7 +562,7 @@ impl MultiThreadThreadLocalContext {
     }
 
     fn run_task(&self, task: Notified, mut core: Box<Core>) -> RunResult {
-        let localNotified = self.worker.multiThreadSchedulerHandle.shared.ownedTasks.assert_owner(task);
+        let localNotified = self.worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.assert_owner(task);
 
         // Make sure the worker is not in the **searching** state. This enables
         // another idle worker to try to steal work.
@@ -647,22 +644,22 @@ impl MultiThreadThreadLocalContext {
 
                 // Run the LIFO task, then loop
                 *self.core.borrow_mut() = Some(core);
-                let task = self.worker.multiThreadSchedulerHandle.shared.ownedTasks.assert_owner(task);
+                let task = self.worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.assert_owner(task);
                 task.run();
             }
         })
     }
 
     fn reset_lifo_enabled(&self, core: &mut Core) {
-        core.lifo_enabled = !self.worker.multiThreadSchedulerHandle.shared.config.disable_lifo_slot;
+        core.lifo_enabled = !self.worker.multiThreadSchedulerHandle.workerSharedState.config.disable_lifo_slot;
     }
 
     fn assert_lifo_enabled_is_correct(&self, core: &Core) {
-        debug_assert_eq!(core.lifo_enabled, !self.worker.multiThreadSchedulerHandle.shared.config.disable_lifo_slot);
+        debug_assert_eq!(core.lifo_enabled, !self.worker.multiThreadSchedulerHandle.workerSharedState.config.disable_lifo_slot);
     }
 
     fn maintenance(&self, mut core: Box<Core>) -> Box<Core> {
-        if core.tick % self.worker.multiThreadSchedulerHandle.shared.config.event_interval == 0 {
+        if core.tick % self.worker.multiThreadSchedulerHandle.workerSharedState.config.event_interval == 0 {
             super::counters::inc_num_maintenance();
 
             core.stats.end_processing_scheduled_tasks();
@@ -692,14 +689,14 @@ impl MultiThreadThreadLocalContext {
     /// Also, we rely on the workstealing algorithm to spread the tasks amongst workers
     /// after all the IOs get dispatched
     fn park(&self, mut core: Box<Core>) -> Box<Core> {
-        if let Some(f) = &self.worker.multiThreadSchedulerHandle.shared.config.before_park {
+        if let Some(f) = &self.worker.multiThreadSchedulerHandle.workerSharedState.config.before_park {
             f();
         }
 
         if core.transition_to_parked(&self.worker) {
             while !core.is_shutdown && !core.is_traced {
                 core.stats.about_to_park();
-                core.stats.submit(&self.worker.multiThreadSchedulerHandle.shared.worker_metrics[self.worker.index]);
+                core.stats.submit(&self.worker.multiThreadSchedulerHandle.workerSharedState.worker_metrics[self.worker.index]);
 
                 core = self.park_timeout(core, None);
 
@@ -714,7 +711,7 @@ impl MultiThreadThreadLocalContext {
             }
         }
 
-        if let Some(f) = &self.worker.multiThreadSchedulerHandle.shared.config.after_unpark {
+        if let Some(f) = &self.worker.multiThreadSchedulerHandle.workerSharedState.config.after_unpark {
             f();
         }
 
@@ -770,16 +767,16 @@ impl Core {
 
     /// Return the next notified task available to this worker.
     fn next_task(&mut self, worker: &Worker) -> Option<Notified> {
-        if self.tick % self.global_queue_interval == 0 {
+        if self.tick % self.checkGlobalQueueInterval == 0 {
             // Update the global queue interval, if needed
             self.tune_global_queue_interval(worker);
 
             worker.multiThreadSchedulerHandle.next_remote_task().or_else(|| self.next_local_task())
         } else {
-            let maybe_task = self.next_local_task();
+            let notified = self.next_local_task();
 
-            if maybe_task.is_some() {
-                return maybe_task;
+            if notified.is_some() {
+                return notified;
             }
 
             if worker.inject().is_empty() {
@@ -790,26 +787,23 @@ impl Core {
             // `run_queue`. So, we can be confident that by the time we call
             // `run_queue.push_back` below, there will be *at least* `cap`
             // available slots in the queue.
-            let cap = usize::min(
-                self.run_queue.remaining_slots(),
-                self.run_queue.max_capacity() / 2,
-            );
+            let cap = usize::min(self.run_queue.remaining_slots(), self.run_queue.max_capacity() / 2);
 
             // The worker is currently idle, pull a batch of work from the
             // injection queue. We don't want to pull *all* the work so other
             // workers can also get some.
-            let n = usize::min(
-                worker.inject().len() / worker.multiThreadSchedulerHandle.shared.remotes.len() + 1,
-                cap,
-            );
+            let n = usize::min(worker.inject().len() / worker.multiThreadSchedulerHandle.workerSharedState.remotes.len() + 1, cap);
 
             // Take at least one task since the first task is returned directly
             // and not pushed onto the local queue.
             let n = usize::max(1, n);
 
-            let mut synced = worker.multiThreadSchedulerHandle.shared.synced.lock();
+            let mut synced = worker.multiThreadSchedulerHandle.workerSharedState.synced.lock();
+
             // safety: passing in the correct `inject::Synced`.
-            let mut tasks = unsafe { worker.inject().pop_n(&mut synced.inject, n) };
+            let mut tasks = unsafe {
+                worker.inject().pop_n(&mut synced.injectSyncState, n)
+            };
 
             // Pop the first task to return immediately
             let ret = tasks.next();
@@ -835,7 +829,7 @@ impl Core {
             return None;
         }
 
-        let num = worker.multiThreadSchedulerHandle.shared.remotes.len();
+        let num = worker.multiThreadSchedulerHandle.workerSharedState.remotes.len();
         // Start from a random worker
         let start = self.rand.fastrand_n(num as u32) as usize;
 
@@ -847,7 +841,7 @@ impl Core {
                 continue;
             }
 
-            let target = &worker.multiThreadSchedulerHandle.shared.remotes[i];
+            let target = &worker.multiThreadSchedulerHandle.workerSharedState.remotes[i];
             if let Some(task) = target
                 .steal
                 .steal_into(&mut self.run_queue, &mut self.stats)
@@ -862,7 +856,7 @@ impl Core {
 
     fn transition_to_searching(&mut self, worker: &Worker) -> bool {
         if !self.is_searching {
-            self.is_searching = worker.multiThreadSchedulerHandle.shared.idle.transition_worker_to_searching();
+            self.is_searching = worker.multiThreadSchedulerHandle.workerSharedState.idle.transition_worker_to_searching();
         }
 
         self.is_searching
@@ -902,8 +896,8 @@ impl Core {
         // When the final worker transitions **out** of searching to parked, it
         // must check all the queues one last time in case work materialized
         // between the last work scan and transitioning out of searching.
-        let is_last_searcher = worker.multiThreadSchedulerHandle.shared.idle.transition_worker_to_parked(
-            &worker.multiThreadSchedulerHandle.shared,
+        let is_last_searcher = worker.multiThreadSchedulerHandle.workerSharedState.idle.transition_worker_to_parked(
+            &worker.multiThreadSchedulerHandle.workerSharedState,
             worker.index,
             self.is_searching,
         );
@@ -930,17 +924,17 @@ impl Core {
             // when it wakes when the I/O driver receives new events.
             self.is_searching = !worker
                 .multiThreadSchedulerHandle
-                .shared
+                .workerSharedState
                 .idle
-                .unpark_worker_by_id(&worker.multiThreadSchedulerHandle.shared, worker.index);
+                .unpark_worker_by_id(&worker.multiThreadSchedulerHandle.workerSharedState, worker.index);
             return true;
         }
 
         if worker
             .multiThreadSchedulerHandle
-            .shared
+            .workerSharedState
             .idle
-            .is_parked(&worker.multiThreadSchedulerHandle.shared, worker.index)
+            .is_parked(&worker.multiThreadSchedulerHandle.workerSharedState, worker.index)
         {
             return false;
         }
@@ -953,17 +947,17 @@ impl Core {
     /// Runs maintenance work such as checking the pool's state.
     fn maintenance(&mut self, worker: &Worker) {
         self.stats
-            .submit(&worker.multiThreadSchedulerHandle.shared.worker_metrics[worker.index]);
+            .submit(&worker.multiThreadSchedulerHandle.workerSharedState.worker_metrics[worker.index]);
 
         if !self.is_shutdown {
             // Check if the scheduler has been shutdown
-            let synced = worker.multiThreadSchedulerHandle.shared.synced.lock();
-            self.is_shutdown = worker.inject().is_closed(&synced.inject);
+            let synced = worker.multiThreadSchedulerHandle.workerSharedState.synced.lock();
+            self.is_shutdown = worker.inject().is_closed(&synced.injectSyncState);
         }
 
         if !self.is_traced {
             // Check if the worker should be tracing.
-            self.is_traced = worker.multiThreadSchedulerHandle.shared.trace_status.trace_requested();
+            self.is_traced = worker.multiThreadSchedulerHandle.workerSharedState.trace_status.trace_requested();
         }
     }
 
@@ -973,16 +967,16 @@ impl Core {
         // Start from a random inner list
         let start = self
             .rand
-            .fastrand_n(worker.multiThreadSchedulerHandle.shared.ownedTasks.get_shard_size() as u32);
+            .fastrand_n(worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.get_shard_size() as u32);
         // Signal to all tasks to shut down.
         worker
             .multiThreadSchedulerHandle
-            .shared
+            .workerSharedState
             .ownedTasks
             .close_and_shutdown_all(start as usize);
 
         self.stats
-            .submit(&worker.multiThreadSchedulerHandle.shared.worker_metrics[worker.index]);
+            .submit(&worker.multiThreadSchedulerHandle.workerSharedState.worker_metrics[worker.index]);
     }
 
     /// Shuts down the core.
@@ -997,13 +991,11 @@ impl Core {
     }
 
     fn tune_global_queue_interval(&mut self, worker: &Worker) {
-        let next = self
-            .stats
-            .tuned_global_queue_interval(&worker.multiThreadSchedulerHandle.shared.config);
+        let next = self.stats.tuned_global_queue_interval(&worker.multiThreadSchedulerHandle.workerSharedState.config);
 
         // Smooth out jitter
-        if u32::abs_diff(self.global_queue_interval, next) > 2 {
-            self.global_queue_interval = next;
+        if u32::abs_diff(self.checkGlobalQueueInterval, next) > 2 {
+            self.checkGlobalQueueInterval = next;
         }
     }
 }
@@ -1011,14 +1003,14 @@ impl Core {
 impl Worker {
     /// Returns a reference to the scheduler's injection queue.
     fn inject(&self) -> &inject::Shared<Arc<MultiThreadSchedulerHandle>> {
-        &self.multiThreadSchedulerHandle.shared.inject
+        &self.multiThreadSchedulerHandle.workerSharedState.injectShared
     }
 }
 
 // TODO: Move `Handle` impls into handle.rs
 impl task::Schedule for Arc<MultiThreadSchedulerHandle> {
-    fn release(&self, task: &Task) -> Option<Task> {
-        self.shared.ownedTasks.remove(task)
+    fn release(&self, task: &task::Task<Arc<MultiThreadSchedulerHandle>>) -> Option<task::Task<Arc<MultiThreadSchedulerHandle>>> {
+        self.workerSharedState.ownedTasks.remove(task)
     }
 
     fn schedule(&self, task: Notified) {
@@ -1097,27 +1089,28 @@ impl MultiThreadSchedulerHandle {
     }
 
     fn next_remote_task(&self) -> Option<Notified> {
-        if self.shared.inject.is_empty() {
+        if self.workerSharedState.injectShared.is_empty() {
             return None;
         }
 
-        let mut synced = self.shared.synced.lock();
+        let mut synced = self.workerSharedState.synced.lock();
+
         // safety: passing in correct `idle::Synced`
-        unsafe { self.shared.inject.pop(&mut synced.inject) }
+        unsafe { self.workerSharedState.injectShared.pop(&mut synced.injectSyncState) }
     }
 
     fn push_remote_task(&self, task: Notified) {
-        self.shared.scheduler_metrics.inc_remote_schedule_count();
+        self.workerSharedState.scheduler_metrics.inc_remote_schedule_count();
 
-        let mut synced = self.shared.synced.lock();
+        let mut synced = self.workerSharedState.synced.lock();
         // safety: passing in correct `idle::Synced`
         unsafe {
-            self.shared.inject.push(&mut synced.inject, task);
+            self.workerSharedState.injectShared.push(&mut synced.injectSyncState, task);
         }
     }
 
     pub(super) fn close(&self) {
-        if self.shared.inject.close(&mut self.shared.synced.lock().inject) {
+        if self.workerSharedState.injectShared.close(&mut self.workerSharedState.synced.lock().injectSyncState) {
             self.notify_all();
         }
     }
@@ -1125,39 +1118,39 @@ impl MultiThreadSchedulerHandle {
     fn notify_parked_local(&self) {
         super::counters::inc_num_inc_notify_local();
 
-        if let Some(index) = self.shared.idle.worker_to_notify(&self.shared) {
+        if let Some(index) = self.workerSharedState.idle.worker_to_notify(&self.workerSharedState) {
             super::counters::inc_num_unparks_local();
-            self.shared.remotes[index].unParker.unpark(&self.driverHandle);
+            self.workerSharedState.remotes[index].unParker.unpark(&self.driverHandle);
         }
     }
 
     fn notify_parked_remote(&self) {
-        if let Some(index) = self.shared.idle.worker_to_notify(&self.shared) {
-            self.shared.remotes[index].unParker.unpark(&self.driverHandle);
+        if let Some(index) = self.workerSharedState.idle.worker_to_notify(&self.workerSharedState) {
+            self.workerSharedState.remotes[index].unParker.unpark(&self.driverHandle);
         }
     }
 
     pub(super) fn notify_all(&self) {
-        for remote in &self.shared.remotes[..] {
+        for remote in &self.workerSharedState.remotes[..] {
             remote.unParker.unpark(&self.driverHandle);
         }
     }
 
     fn notify_if_work_pending(&self) {
-        for remote in &self.shared.remotes[..] {
+        for remote in &self.workerSharedState.remotes[..] {
             if !remote.steal.is_empty() {
                 self.notify_parked_local();
                 return;
             }
         }
 
-        if !self.shared.inject.is_empty() {
+        if !self.workerSharedState.injectShared.is_empty() {
             self.notify_parked_local();
         }
     }
 
     fn transition_worker_from_searching(&self) {
-        if self.shared.idle.transition_worker_from_searching() {
+        if self.workerSharedState.idle.transition_worker_from_searching() {
             // We are the final searching worker. Because work was found, we
             // need to notify another worker.
             self.notify_parked_local();
@@ -1169,14 +1162,14 @@ impl MultiThreadSchedulerHandle {
     ///
     /// If all workers have reached this point, the final cleanup is performed.
     fn shutdown_core(&self, core: Box<Core>) {
-        let mut cores = self.shared.shutdown_cores.lock();
+        let mut cores = self.workerSharedState.shutdown_cores.lock();
         cores.push(core);
 
-        if cores.len() != self.shared.remotes.len() {
+        if cores.len() != self.workerSharedState.remotes.len() {
             return;
         }
 
-        debug_assert!(self.shared.ownedTasks.is_empty());
+        debug_assert!(self.workerSharedState.ownedTasks.is_empty());
 
         for mut core in cores.drain(..) {
             core.shutdown(self);
@@ -1205,7 +1198,7 @@ impl Overflow<Arc<MultiThreadSchedulerHandle>> for MultiThreadSchedulerHandle {
         I: Iterator<Item=task::Notified<Arc<MultiThreadSchedulerHandle>>>,
     {
         unsafe {
-            self.shared.inject.push_batch(self, iter);
+            self.workerSharedState.injectShared.push_batch(self, iter);
         }
     }
 }
@@ -1214,18 +1207,18 @@ pub(crate) struct InjectGuard<'a> {
     lock: crate::loom::sync::MutexGuard<'a, Synced>,
 }
 
-impl<'a> AsMut<inject::Synced> for InjectGuard<'a> {
-    fn as_mut(&mut self) -> &mut inject::Synced {
-        &mut self.lock.inject
+impl<'a> AsMut<inject::InjectSyncState> for InjectGuard<'a> {
+    fn as_mut(&mut self) -> &mut inject::InjectSyncState {
+        &mut self.lock.injectSyncState
     }
 }
 
-impl<'a> Lock<inject::Synced> for &'a MultiThreadSchedulerHandle {
+impl<'a> Lock<inject::InjectSyncState> for &'a MultiThreadSchedulerHandle {
     type Handle = InjectGuard<'a>;
 
     fn lock(self) -> Self::Handle {
         InjectGuard {
-            lock: self.shared.synced.lock(),
+            lock: self.workerSharedState.synced.lock(),
         }
     }
 }

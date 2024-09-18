@@ -6,11 +6,10 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use std::env;
-use std::error::Error;
+use std::{env, io};
 use tokio::runtime::Runtime;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> io::Result<()> {
     let runtime = Runtime::new()?;
 
     runtime.block_on(async {
@@ -37,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
 
         Result::<(),std::io::Error>::Ok(())
-    });
+    })?;
 
     Ok(())
 }

@@ -10,7 +10,7 @@ mod shared;
 pub(crate) use shared::Shared;
 
 mod synced;
-pub(crate) use synced::Synced;
+pub(crate) use synced::InjectSyncState;
 
 cfg_rt_multi_thread! {
     mod rt_multi_thread;
@@ -24,7 +24,7 @@ cfg_unstable_metrics! {
 /// overflow queue when the local, fixed-size, array queue overflows.
 pub(crate) struct Inject<T: 'static> {
     shared: Shared<T>,
-    synced: Mutex<Synced>,
+    synced: Mutex<InjectSyncState>,
 }
 
 impl<T: 'static> Inject<T> {

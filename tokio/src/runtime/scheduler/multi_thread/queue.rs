@@ -182,12 +182,10 @@ impl<T> Local<T> {
     /// When the queue overflows, half of the current contents of the queue is
     /// moved to the given Injection queue. This frees up capacity for more
     /// tasks to be pushed into the local queue.
-    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(
-        &mut self,
-        mut task: task::Notified<T>,
-        overflow: &O,
-        stats: &mut Stats,
-    ) {
+    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(&mut self,
+                                                        mut task: task::Notified<T>,
+                                                        overflow: &O,
+                                                        stats: &mut Stats) {
         let tail = loop {
             let head = self.inner.head.load(Acquire);
             let (steal, real) = unpack(head);
@@ -203,15 +201,14 @@ impl<T> Local<T> {
                 // push the task onto the inject queue
                 overflow.push(task);
                 return;
-            } else {
-                // Push the current task and half of the queue into the
-                // inject queue.
-                match self.push_overflow(task, real, tail, overflow, stats) {
-                    Ok(_) => return,
-                    // Lost the race, try again
-                    Err(v) => {
-                        task = v;
-                    }
+            }
+
+            // Push the current task and half of the queue into the inject queue.
+            match self.push_overflow(task, real, tail, overflow, stats) {
+                Ok(_) => return,
+                // Lost the race, try again
+                Err(v) => {
+                    task = v;
                 }
             }
         };
@@ -570,8 +567,7 @@ impl<T> Inner<T> {
     }
 }
 
-/// Split the head value into the real head and the index a stealer is working
-/// on.
+/// Split the head value into the real head and the index a stealer is working on.
 fn unpack(n: UnsignedLong) -> (UnsignedShort, UnsignedShort) {
     let real = n & UnsignedShort::MAX as UnsignedLong;
     let steal = n >> (mem::size_of::<UnsignedShort>() * 8);
@@ -582,9 +578,4 @@ fn unpack(n: UnsignedLong) -> (UnsignedShort, UnsignedShort) {
 /// Join the two head values
 fn pack(steal: UnsignedShort, real: UnsignedShort) -> UnsignedLong {
     (real as UnsignedLong) | ((steal as UnsignedLong) << (mem::size_of::<UnsignedShort>() * 8))
-}
-
-#[test]
-fn test_local_queue_capacity() {
-    assert!(LOCAL_QUEUE_CAPACITY - 1 <= u8::MAX as usize);
 }

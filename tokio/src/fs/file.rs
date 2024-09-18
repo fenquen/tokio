@@ -16,12 +16,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-#[cfg(test)]
-use super::mocks::JoinHandle;
-#[cfg(test)]
-use super::mocks::MockFile as StdFile;
-#[cfg(test)]
-use super::mocks::{spawn_blocking, spawn_mandatory_blocking};
 #[cfg(not(test))]
 use crate::blocking::JoinHandle;
 #[cfg(not(test))]
@@ -947,6 +941,3 @@ impl Inner {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

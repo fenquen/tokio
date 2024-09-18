@@ -18,7 +18,7 @@ cfg_taskdump! {
 
 pub(crate) struct MultiThreadSchedulerHandle {
     /// Task spawner
-    pub(super) shared: worker::Shared,
+    pub(super) workerSharedState: worker::workerSharedState,
 
     /// Resource driver handles
     pub(crate) driverHandle: driver::DriverHandle,
@@ -52,7 +52,7 @@ impl MultiThreadSchedulerHandle {
         T: Future + Send + 'static,
         T::Output: Send + 'static,
     {
-        let (handle, notified) = me.shared.ownedTasks.bind(future, me.clone(), id);
+        let (handle, notified) = me.workerSharedState.ownedTasks.bind(future, me.clone(), id);
 
         me.task_hooks.spawn(&TaskMeta {
             _phantom: Default::default(),

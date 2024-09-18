@@ -1,4 +1,4 @@
-use super::Synced;
+use super::InjectSyncState;
 
 use crate::runtime::task;
 
@@ -6,15 +6,15 @@ use std::marker::PhantomData;
 
 pub(crate) struct Pop<'a, T: 'static> {
     len: usize,
-    synced: &'a mut Synced,
+    injectSyncState: &'a mut InjectSyncState,
     _p: PhantomData<T>,
 }
 
 impl<'a, T: 'static> Pop<'a, T> {
-    pub(super) fn new(len: usize, synced: &'a mut Synced) -> Pop<'a, T> {
+    pub(super) fn new(len: usize, injectSyncState: &'a mut InjectSyncState) -> Pop<'a, T> {
         Pop {
             len,
-            synced,
+            injectSyncState,
             _p: PhantomData,
         }
     }
@@ -28,12 +28,13 @@ impl<'a, T: 'static> Iterator for Pop<'a, T> {
             return None;
         }
 
-        let ret = self.synced.pop();
+        let ret = self.injectSyncState.pop();
 
-        // Should be `Some` when `len > 0`
+        // should be `Some` when `len > 0`
         debug_assert!(ret.is_some());
 
         self.len -= 1;
+
         ret
     }
 

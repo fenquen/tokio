@@ -4,7 +4,7 @@ use crate::runtime::Dump;
 
 impl MultiThreadSchedulerHandle {
     pub(crate) async fn dump(&self) -> Dump {
-        let trace_status = &self.shared.trace_status;
+        let trace_status = &self.workerSharedState.trace_status;
 
         // If a dump is in progress, block.
         trace_status.start_trace_request(&self).await;

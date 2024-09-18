@@ -151,15 +151,9 @@ const fn get_id_offset(header_size: usize,
 }
 
 impl RawTask {
-    pub(super) fn new<T, S>(task: T, scheduler: S, taskId: Id) -> RawTask
-    where
-        T: Future,
-        S: Schedule,
-    {
+    pub(super) fn new<T: Future, S: Schedule>(task: T, scheduler: S, taskId: Id) -> RawTask {
         let cellPtr = Box::into_raw(Cell::<_, S>::new(task, scheduler, State::new(), taskId));
-        let headerPtr = unsafe { NonNull::new_unchecked(cellPtr.cast()) };
-
-        RawTask { headerPtr }
+        RawTask { headerPtr: unsafe { NonNull::new_unchecked(cellPtr.cast()) } }
     }
 
     pub(super) unsafe fn fromHeaderPtr(headerPtr: NonNull<Header>) -> RawTask {

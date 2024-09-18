@@ -1,20 +1,20 @@
-use super::{Shared, Synced};
+use super::{Shared, InjectSyncState};
 
 use crate::runtime::scheduler::Lock;
 use crate::runtime::task;
 
 use std::sync::atomic::Ordering::Release;
 
-impl<'a> Lock<Synced> for &'a mut Synced {
-    type Handle = &'a mut Synced;
+impl<'a> Lock<InjectSyncState> for &'a mut InjectSyncState {
+    type Handle = &'a mut InjectSyncState;
 
     fn lock(self) -> Self::Handle {
         self
     }
 }
 
-impl AsMut<Synced> for Synced {
-    fn as_mut(&mut self) -> &mut Synced {
+impl AsMut<InjectSyncState> for InjectSyncState {
+    fn as_mut(&mut self) -> &mut InjectSyncState {
         self
     }
 }
@@ -28,7 +28,7 @@ impl<T: 'static> Shared<T> {
     #[inline]
     pub(crate) unsafe fn push_batch<L, I>(&self, shared: L, mut iter: I)
     where
-        L: Lock<Synced>,
+        L: Lock<InjectSyncState>,
         I: Iterator<Item = task::Notified<T>>,
     {
         let first = match iter.next() {
@@ -70,7 +70,7 @@ impl<T: 'static> Shared<T> {
         batch_tail: task::RawTask,
         num: usize,
     ) where
-        L: Lock<Synced>,
+        L: Lock<InjectSyncState>,
     {
         debug_assert!(unsafe { batch_tail.get_queue_next().is_none() });
 

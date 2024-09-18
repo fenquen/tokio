@@ -36,10 +36,4 @@ impl TimeSource {
     pub(crate) fn now(&self, clock: &Clock) -> u64 {
         self.instant_to_tick(clock.now())
     }
-
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(super) fn start_time(&self) -> Instant {
-        self.start_time
-    }
 }

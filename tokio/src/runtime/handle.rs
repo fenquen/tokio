@@ -109,36 +109,6 @@ impl RuntimeHandle {
     }
 
     /// Spawns a future onto the Tokio runtime.
-    ///
-    /// This spawns the given future onto the runtime's executor, usually a
-    /// thread pool. The thread pool is then responsible for polling the future
-    /// until it completes.
-    ///
-    /// The provided future will start running in the background immediately
-    /// when `spawn` is called, even if you don't await the returned
-    /// `JoinHandle`.
-    ///
-    /// See [module level][mod] documentation for more details.
-    ///
-    /// [mod]: index.html
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::Runtime;
-    ///
-    /// # fn dox() {
-    /// // Create the runtime
-    /// let rt = Runtime::new().unwrap();
-    /// // Get a handle from this runtime
-    /// let handle = rt.handle();
-    ///
-    /// // Spawn a future onto the runtime using the handle
-    /// handle.spawn(async {
-    ///     println!("now running on a worker thread");
-    /// });
-    /// # }
-    /// ```
     #[track_caller]
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where

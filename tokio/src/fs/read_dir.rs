@@ -10,10 +10,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-#[cfg(test)]
-use super::mocks::spawn_blocking;
-#[cfg(test)]
-use super::mocks::JoinHandle;
 #[cfg(not(test))]
 use crate::blocking::spawn_blocking;
 #[cfg(not(test))]

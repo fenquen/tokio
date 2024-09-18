@@ -5,7 +5,7 @@
 
 use crate::runtime::task;
 
-pub(crate) struct Synced {
+pub(crate) struct InjectSyncState {
     /// True if the queue is closed.
     pub(super) is_closed: bool,
 
@@ -16,23 +16,23 @@ pub(crate) struct Synced {
     pub(super) tail: Option<task::RawTask>,
 }
 
-unsafe impl Send for Synced {}
-unsafe impl Sync for Synced {}
+unsafe impl Send for InjectSyncState {}
+unsafe impl Sync for InjectSyncState {}
 
-impl Synced {
+impl InjectSyncState {
     pub(super) fn pop<T: 'static>(&mut self) -> Option<task::Notified<T>> {
-        let task = self.head?;
+        let rawTask = self.head?;
 
-        self.head = unsafe { task.get_queue_next() };
+        self.head = unsafe { rawTask.get_queue_next() };
 
         if self.head.is_none() {
             self.tail = None;
         }
 
-        unsafe { task.set_queue_next(None) };
+        unsafe { rawTask.set_queue_next(None) };
 
         // safety: a `Notified` is pushed into the queue and now it is popped!
-        Some(unsafe { task::Notified::from_raw(task) })
+        Some(unsafe { task::Notified::from_raw(rawTask) })
     }
 
     pub(crate) fn is_empty(&self) -> bool {
