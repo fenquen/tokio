@@ -89,8 +89,6 @@ impl ParkThread {
     }
 }
 
-// ==== impl Inner ====
-
 impl Inner {
     fn park(&self) {
         // If we were previously notified then we consume this notification and
