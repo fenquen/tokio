@@ -17,6 +17,19 @@ pub(crate) struct UnparkThread {
     inner: Arc<Inner>,
 }
 
+impl UnparkThread {
+    pub(crate) fn unpark(&self) {
+        self.inner.unpark();
+    }
+
+    pub(crate) fn into_waker(self) -> Waker {
+        unsafe {
+            let rawWaker = unparker_to_raw_waker(self.inner);
+            Waker::from_raw(rawWaker)
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Inner {
     state: AtomicUsize,
@@ -37,8 +50,6 @@ tokio_thread_local! {
 tokio_thread_local! {
     pub(crate) static CURRENT_THREAD_PARK_COUNT: AtomicUsize = AtomicUsize::new(0);
 }
-
-// ==== impl ParkThread ====
 
 impl ParkThread {
     pub(crate) fn new() -> Self {
@@ -84,11 +95,7 @@ impl Inner {
     fn park(&self) {
         // If we were previously notified then we consume this notification and
         // return quickly.
-        if self
-            .state
-            .compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst)
-            .is_ok()
-        {
+        if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
             return;
         }
 
@@ -115,11 +122,7 @@ impl Inner {
         loop {
             m = self.condvar.wait(m).unwrap();
 
-            if self
-                .state
-                .compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst)
-                .is_ok()
-            {
+            if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
                 // got a notification
                 return;
             }
@@ -207,14 +210,6 @@ impl Default for ParkThread {
     }
 }
 
-// ===== impl UnparkThread =====
-
-impl UnparkThread {
-    pub(crate) fn unpark(&self) {
-        self.inner.unpark();
-    }
-}
-
 use crate::loom::thread::AccessError;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -247,13 +242,11 @@ impl CachedParkThread {
     }
 
     pub(crate) fn park(&mut self) {
-        self.with_current(|park_thread| park_thread.inner.park())
-            .unwrap();
+        self.with_current(|park_thread| park_thread.inner.park()).unwrap();
     }
 
     pub(crate) fn park_timeout(&mut self, duration: Duration) {
-        self.with_current(|park_thread| park_thread.inner.park_timeout(duration))
-            .unwrap();
+        self.with_current(|park_thread| park_thread.inner.park_timeout(duration)).unwrap();
     }
 
     /// Gets a reference to the `ParkThread` handle for this thread.
@@ -279,15 +272,6 @@ impl CachedParkThread {
             }
 
             self.park();
-        }
-    }
-}
-
-impl UnparkThread {
-    pub(crate) fn into_waker(self) -> Waker {
-        unsafe {
-            let raw = unparker_to_raw_waker(self.inner);
-            Waker::from_raw(raw)
         }
     }
 }
