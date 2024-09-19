@@ -67,6 +67,7 @@ impl MultiThread {
                            blocking_spawner,
                            seed_generator,
                            config);
+        
         (MultiThread, multiThreadSchedulerHandle, launcher)
     }
 
