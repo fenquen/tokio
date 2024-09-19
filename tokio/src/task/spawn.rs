@@ -136,7 +136,6 @@ cfg_rt! {
     ///     // Do stuff w/ rc
     /// # drop(rc);
     /// }
-    ///
     /// #[tokio::main]
     /// async fn main() {
     ///     tokio::spawn(async {
