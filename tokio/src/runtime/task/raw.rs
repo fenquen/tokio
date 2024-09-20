@@ -4,7 +4,6 @@ use crate::runtime::task::{Cell, Harness, Header, Id, Schedule, State};
 
 use std::ptr::NonNull;
 use std::task::{Poll, Waker};
-use crate::runtime::task;
 
 /// Raw task handle
 #[derive(Clone)]
@@ -257,28 +256,22 @@ unsafe fn dealloc<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {
     Harness::<T, S>::from_raw(headerPtr).dealloc();
 }
 
-unsafe fn try_read_output<T: Future, S: Schedule>(
-    ptr: NonNull<Header>,
-    dst: *mut (),
-    waker: &Waker,
-) {
+unsafe fn try_read_output<T: Future, S: Schedule>(ptr: NonNull<Header>,
+                                                  dst: *mut (),
+                                                  waker: &Waker) {
     let out = &mut *(dst as *mut Poll<super::Result<T::Output>>);
 
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.try_read_output(out, waker);
+    Harness::<T, S>::from_raw(ptr).try_read_output(out, waker);
 }
 
 unsafe fn drop_join_handle_slow<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.drop_join_handle_slow();
+    Harness::<T, S>::from_raw(ptr).drop_join_handle_slow();
 }
 
 unsafe fn drop_abort_handle<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.drop_reference();
+    Harness::<T, S>::from_raw(ptr).drop_reference();
 }
 
 unsafe fn shutdown<T: Future, S: Schedule>(ptr: NonNull<Header>) {
-    let harness = Harness::<T, S>::from_raw(ptr);
-    harness.shutdown();
+    Harness::<T, S>::from_raw(ptr).shutdown();
 }

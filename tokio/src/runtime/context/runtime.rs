@@ -29,8 +29,7 @@ pub(crate) struct EnterRuntimeGuard {
     old_seed: RngSeed,
 }
 
-/// Marks the current thread as being within the dynamic extent of an
-/// executor.
+/// Marks the current thread as being within the dynamic extent of an executor.
 #[track_caller]
 pub(crate) fn enter_runtime<F, R>(handle: &scheduler::SchedulerHandleEnum, allow_block_in_place: bool, f: F) -> R
 where

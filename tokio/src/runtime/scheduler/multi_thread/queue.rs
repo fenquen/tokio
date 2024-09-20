@@ -184,8 +184,7 @@ impl<T> Local<T> {
     /// tasks to be pushed into the local queue.
     pub(crate) fn push_back_or_overflow<O: Overflow<T>>(&mut self,
                                                         mut task: task::Notified<T>,
-                                                        overflow: &O,
-                                                        stats: &mut Stats) {
+                                                        overflow: &O) {
         let tail = loop {
             let head = self.inner.head.load(Acquire);
             let (steal, real) = unpack(head);
@@ -204,7 +203,7 @@ impl<T> Local<T> {
             }
 
             // Push the current task and half of the queue into the inject queue.
-            match self.push_overflow(task, real, tail, overflow, stats) {
+            match self.push_overflow(task, real, tail, overflow) {
                 Ok(_) => return,
                 // Lost the race, try again
                 Err(v) => {
@@ -250,7 +249,6 @@ impl<T> Local<T> {
         head: UnsignedShort,
         tail: UnsignedShort,
         overflow: &O,
-        stats: &mut Stats,
     ) -> Result<(), task::Notified<T>> {
         /// How many elements are we taking from the local queue.
         ///
@@ -334,9 +332,6 @@ impl<T> Local<T> {
         };
         overflow.push_batch(batch_iter.chain(std::iter::once(task)));
 
-        // Add 1 to factor in the task currently being scheduled.
-        stats.incr_overflow_count();
-
         Ok(())
     }
 
@@ -414,8 +409,6 @@ impl<T> Steal<T> {
             return None;
         }
 
-        dst_stats.incr_steal_count(n as u16);
-        dst_stats.incr_steal_operations();
 
         // We are returning a task here
         n -= 1;

@@ -200,7 +200,7 @@ cfg_coop! {
         cfg_unstable_metrics! {
             #[inline(always)]
             fn inc_budget_forced_yield_count() {
-                let _ = context::with_current(|handle| {
+                let _ = context::withCurrentSchedulerHandleEnum(|handle| {
                     handle.scheduler_metrics().inc_budget_forced_yield_count();
                 });
             }

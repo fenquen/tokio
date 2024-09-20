@@ -21,7 +21,7 @@ pub(crate) use park::{Parker, UnParker};
 pub(crate) mod queue;
 
 mod worker;
-pub(crate) use worker::{MultiThreadThreadLocalContext, Launcher, workerSharedState};
+pub(crate) use worker::{MultiThreadThreadLocalContext, Launcher, WorkerSharedState};
 
 cfg_taskdump! {
     mod trace;
@@ -67,7 +67,7 @@ impl MultiThread {
                            blocking_spawner,
                            seed_generator,
                            config);
-        
+
         (MultiThread, multiThreadSchedulerHandle, launcher)
     }
 

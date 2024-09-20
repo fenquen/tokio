@@ -84,20 +84,15 @@ impl<S: 'static> OwnedTasks<S> {
         }
     }
 
-    /// Binds the provided task to this `OwnedTasks` instance. This fails if the
-    /// `OwnedTasks` has been closed.
-    pub(crate) fn bind<T>(
-        &self,
-        task: T,
-        scheduler: S,
-        id: super::Id,
-    ) -> (JoinHandle<T::Output>, Option<Notified<S>>)
+    /// Binds the provided task to this `OwnedTasks` instance. This fails if the `OwnedTasks` has been closed.
+    pub(crate) fn bind<T: Future<Output: Send + 'static> + Send + 'static>(&self,
+                                                                           task: T,
+                                                                           scheduler: S,
+                                                                           id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>)
     where
         S: Schedule,
-        T: Future + Send + 'static,
-        T::Output: Send + 'static,
     {
-        let (task, notified, join) = super::new_task(task, scheduler, id);
+        let (task, notified, join) = super::newTask(task, scheduler, id);
         let notified = unsafe { self.bind_inner(task, notified) };
         (join, notified)
     }
@@ -108,20 +103,22 @@ impl<S: 'static> OwnedTasks<S> {
         S: Schedule,
     {
         unsafe {
-            // safety: We just created the task, so we have exclusive access
-            // to the field.
+            // safety: We just created the task, so we have exclusive access to the field.
             task.header().set_owner_id(self.id);
         }
 
-        let shard = self.list.lock_shard(&task);
+        let shardGuard = self.list.lockShard(&task);
+
         // Check the closed flag in the lock for ensuring all that tasks
         // will shut down after the OwnedTasks has been closed.
         if self.closed.load(Ordering::Acquire) {
-            drop(shard);
+            drop(shardGuard);
             task.shutdown();
             return None;
         }
-        shard.push(task);
+
+        shardGuard.push(task);
+
         Some(notified)
     }
 
@@ -210,18 +207,6 @@ impl<S: 'static> OwnedTasks<S> {
     }
 }
 
-cfg_taskdump! {
-    impl<S: 'static> OwnedTasks<S> {
-        /// Locks the tasks, and calls `f` on an iterator over them.
-        pub(crate) fn for_each<F>(&self, f: F)
-        where
-            F: FnMut(&Task<S>),
-        {
-            self.list.for_each(f);
-        }
-    }
-}
-
 impl<S: 'static> LocalOwnedTasks<S> {
     pub(crate) fn new() -> Self {
         Self {
@@ -245,7 +230,7 @@ impl<S: 'static> LocalOwnedTasks<S> {
         T: Future + 'static,
         T::Output: 'static,
     {
-        let (task, notified, join) = super::new_task(task, scheduler, id);
+        let (task, notified, join) = super::newTask(task, scheduler, id);
 
         unsafe {
             // safety: We just created the task, so we have exclusive access

@@ -69,9 +69,6 @@ cfg_rt! {
 
                 #[cfg(feature = "rt-multi-thread")]
                 $ty::MultiThread($h) => $e,
-
-                #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                $ty::MultiThreadAlt($h) => $e,
             }
         }
     }
@@ -79,7 +76,7 @@ cfg_rt! {
     impl SchedulerHandleEnum {
         #[track_caller]
         pub(crate) fn current() -> SchedulerHandleEnum {
-            match context::with_current(Clone::clone) {
+            match context::withCurrentSchedulerHandleEnum(Clone::clone) {
                 Ok(schedulerHandleEnum) => schedulerHandleEnum,
                 Err(e) => panic!("{}", e),
             }
@@ -89,15 +86,11 @@ cfg_rt! {
             match self {
                 SchedulerHandleEnum::CurrentThread(h) => &h.blocking_spawner,
                 #[cfg(feature = "rt-multi-thread")]
-                SchedulerHandleEnum::MultiThread(h) => &h.blocking_spawner,
+                SchedulerHandleEnum::MultiThread(h) => &h.blockingSpawner,
             }
         }
 
-        pub(crate) fn spawn<F>(&self, future: F, id: Id) -> JoinHandle<F::Output>
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
+        pub(crate) fn spawn<F:Future<Output: Send + 'static> + Send + 'static>(&self, future: F, id: Id) -> JoinHandle<F::Output> {
             match self {
                 SchedulerHandleEnum::CurrentThread(h) => current_thread::CurrentThreadSchedulerHandle::spawn(h, future, id),
                 #[cfg(feature = "rt-multi-thread")]
@@ -114,7 +107,11 @@ cfg_rt! {
         }
 
         pub(crate) fn seed_generator(&self) -> &RngSeedGenerator {
-            match_flavor!(self, SchedulerHandleEnum(h) => &h.seed_generator)
+            match self {
+                SchedulerHandleEnum::CurrentThread(h) => &h.rngSeedGenerator,
+                #[cfg(feature = "rt-multi-thread")]
+                SchedulerHandleEnum::MultiThread(h) => &h.rngSeedGenerator,
+            }
         }
 
         pub(crate) fn as_current_thread(&self) -> &Arc<current_thread::CurrentThreadSchedulerHandle> {
@@ -129,20 +126,12 @@ cfg_rt! {
             match self {
                 SchedulerHandleEnum::CurrentThread(h) => &h.task_hooks,
                 #[cfg(feature = "rt-multi-thread")]
-                SchedulerHandleEnum::MultiThread(h) => &h.task_hooks,
+                SchedulerHandleEnum::MultiThread(h) => &h.taskHooks,
             }
         }
     }
 
     impl SchedulerHandleEnum {
-        pub(crate) fn num_workers(&self) -> usize {
-            match self {
-                SchedulerHandleEnum::CurrentThread(_) => 1,
-                #[cfg(feature = "rt-multi-thread")]
-                SchedulerHandleEnum::MultiThread(handle) => handle.num_workers(),
-            }
-        }
-
         pub(crate) fn num_alive_tasks(&self) -> usize {
             match_flavor!(self, SchedulerHandleEnum(handle) => handle.num_alive_tasks())
         }

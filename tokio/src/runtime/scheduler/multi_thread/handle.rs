@@ -12,55 +12,39 @@ use std::fmt;
 
 mod metrics;
 
-cfg_taskdump! {
-    mod taskdump;
-}
-
 pub(crate) struct MultiThreadSchedulerHandle {
     /// Task spawner
-    pub(super) workerSharedState: worker::workerSharedState,
+    pub(super) workerSharedState: worker::WorkerSharedState,
 
     /// Resource driver handles
     pub(crate) driverHandle: driver::DriverHandle,
 
     /// Blocking pool spawner
-    pub(crate) blocking_spawner: blocking::Spawner,
+    pub(crate) blockingSpawner: blocking::Spawner,
 
     /// Current random number generator seed
-    pub(crate) seed_generator: RngSeedGenerator,
+    pub(crate) rngSeedGenerator: RngSeedGenerator,
 
     /// User-supplied hooks to invoke for things
-    pub(crate) task_hooks: TaskHooks,
+    pub(crate) taskHooks: TaskHooks,
 }
 
 impl MultiThreadSchedulerHandle {
     /// Spawns a future onto the thread pool
-    pub(crate) fn spawn<F>(me: &Arc<Self>, future: F, id: task::Id) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        Self::bind_new_task(me, future, id)
-    }
-
-    pub(crate) fn shutdown(&self) {
-        self.close();
-    }
-
-    pub(super) fn bind_new_task<T>(me: &Arc<Self>, future: T, id: task::Id) -> JoinHandle<T::Output>
-    where
-        T: Future + Send + 'static,
-        T::Output: Send + 'static,
-    {
+    pub(crate) fn spawn<F: Future<Output: Send + 'static> + Send + 'static>(me: &Arc<Self>, future: F, id: task::Id) -> JoinHandle<F::Output> {
         let (handle, notified) = me.workerSharedState.ownedTasks.bind(future, me.clone(), id);
 
-        me.task_hooks.spawn(&TaskMeta {
+        me.taskHooks.spawn(&TaskMeta {
             _phantom: Default::default(),
         });
 
         me.schedule_option_task_without_yield(notified);
 
         handle
+    }
+
+    pub(crate) fn shutdown(&self) {
+        self.close();
     }
 }
 

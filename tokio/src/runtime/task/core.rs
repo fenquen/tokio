@@ -169,10 +169,6 @@ pub(crate) struct Header {
     /// to read the id without synchronization, even if it is concurrently being
     /// removed from the list.
     pub(super) owner_id: UnsafeCell<Option<NonZeroU64>>,
-
-    /// The tracing ID for this instrumented task.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    pub(super) tracing_id: Option<tracing::Id>,
 }
 
 unsafe impl Send for Header {}
@@ -209,31 +205,20 @@ impl<T: Future, S: Schedule> Cell<T, S> {
     /// Allocates a new task cell, containing the header, trailer, and core structure
     pub(super) fn new(future: T, scheduler: S, state: State, task_id: Id) -> Box<Cell<T, S>> {
         // Separated into a non-generic function to reduce LLVM codegen
-        fn new_header(state: State,
-                      vtable: &'static Vtable,
-                      #[cfg(all(tokio_unstable, feature = "tracing"))] tracing_id: Option<tracing::Id>) -> Header {
+        fn new_header(state: State, vtable: &'static Vtable,) -> Header {
             Header {
                 state,
                 queue_next: UnsafeCell::new(None),
                 vtable,
                 owner_id: UnsafeCell::new(None),
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                tracing_id,
             }
         }
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let tracing_id = future.id();
 
         let vtable = raw::vtable::<T, S>();
         let result = Box::new(Cell {
             trailer: Trailer::new(scheduler.hooks()),
-            header: new_header(
-                state,
-                vtable,
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                tracing_id,
-            ),
+            header: new_header(state, vtable),
             core: Core {
                 scheduler,
                 coreStage: CoreStage {

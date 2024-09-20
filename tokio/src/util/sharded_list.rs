@@ -91,13 +91,13 @@ impl<L: ShardedListItem> ShardedList<L, L::Target> {
     }
 
     /// Gets the lock of `ShardedList`, makes us have the write permission.
-    pub(crate) fn lock_shard(&self, val: &L::Handle) -> ShardGuard<'_, L, L::Target> {
-        let id = unsafe { L::get_shard_id(L::as_raw(val)) };
+    pub(crate) fn lockShard(&self, val: &L::Handle) -> ShardGuard<'_, L, L::Target> {
+        let taskId = unsafe { L::get_shard_id(L::as_raw(val)) };
         ShardGuard {
-            lock: self.shard_inner(id),
+            lock: self.shard_inner(taskId),
             added: &self.added,
             count: &self.count,
-            id,
+            id: taskId,
         }
     }
 
@@ -140,22 +140,5 @@ impl<'a, L: ShardedListItem> ShardGuard<'a, L, L::Target> {
         self.lock.push_front(val);
         self.added.add(1, Ordering::Relaxed);
         self.count.increment();
-    }
-}
-
-cfg_taskdump! {
-    impl<L: ShardedListItem> ShardedList<L, L::Target> {
-        pub(crate) fn for_each<F>(&self, mut f: F)
-        where
-            F: FnMut(&L::Handle),
-        {
-            let mut guards = Vec::with_capacity(self.lists.len());
-            for list in self.lists.iter() {
-                guards.push(list.lock());
-            }
-            for g in &mut guards {
-                g.for_each(&mut f);
-            }
-        }
     }
 }

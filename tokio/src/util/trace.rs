@@ -7,13 +7,3 @@ cfg_time! {
         None
     }
 }
-
-cfg_not_trace! {
-    cfg_rt! {
-        #[inline]
-        pub(crate) fn task<F>(task: F, _: &'static str, _name: Option<&str>, _: u64) -> F {
-            // nop
-            task
-        }
-    }
-}

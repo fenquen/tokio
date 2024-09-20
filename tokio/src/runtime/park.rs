@@ -11,6 +11,50 @@ pub(crate) struct ParkThread {
     inner: Arc<Inner>,
 }
 
+impl ParkThread {
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                state: AtomicUsize::new(EMPTY),
+                mutex: Mutex::new(()),
+                condvar: Condvar::new(),
+            }),
+        }
+    }
+
+    pub(crate) fn unpark(&self) -> UnparkThread {
+        let inner = self.inner.clone();
+        UnparkThread { inner }
+    }
+
+    pub(crate) fn park(&mut self) {
+        #[cfg(loom)]
+        CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
+        self.inner.park();
+    }
+
+    pub(crate) fn park_timeout(&mut self, duration: Duration) {
+        #[cfg(loom)]
+        CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
+
+        // Wasm doesn't have threads, so just sleep.
+        #[cfg(not(target_family = "wasm"))]
+        self.inner.park_timeout(duration);
+        #[cfg(target_family = "wasm")]
+        std::thread::sleep(duration);
+    }
+
+    pub(crate) fn shutdown(&mut self) {
+        self.inner.shutdown();
+    }
+}
+
+impl Default for ParkThread {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Unblocks a thread that was blocked by `ParkThread`.
 #[derive(Clone, Debug)]
 pub(crate) struct UnparkThread {
@@ -49,44 +93,6 @@ tokio_thread_local! {
 #[cfg(loom)]
 tokio_thread_local! {
     pub(crate) static CURRENT_THREAD_PARK_COUNT: AtomicUsize = AtomicUsize::new(0);
-}
-
-impl ParkThread {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                state: AtomicUsize::new(EMPTY),
-                mutex: Mutex::new(()),
-                condvar: Condvar::new(),
-            }),
-        }
-    }
-
-    pub(crate) fn unpark(&self) -> UnparkThread {
-        let inner = self.inner.clone();
-        UnparkThread { inner }
-    }
-
-    pub(crate) fn park(&mut self) {
-        #[cfg(loom)]
-        CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
-        self.inner.park();
-    }
-
-    pub(crate) fn park_timeout(&mut self, duration: Duration) {
-        #[cfg(loom)]
-        CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
-
-        // Wasm doesn't have threads, so just sleep.
-        #[cfg(not(target_family = "wasm"))]
-        self.inner.park_timeout(duration);
-        #[cfg(target_family = "wasm")]
-        std::thread::sleep(duration);
-    }
-
-    pub(crate) fn shutdown(&mut self) {
-        self.inner.shutdown();
-    }
 }
 
 impl Inner {
@@ -202,12 +208,6 @@ impl Inner {
     }
 }
 
-impl Default for ParkThread {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 use crate::loom::thread::AccessError;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -248,10 +248,7 @@ impl CachedParkThread {
     }
 
     /// Gets a reference to the `ParkThread` handle for this thread.
-    fn with_current<F, R>(&self, f: F) -> Result<R, AccessError>
-    where
-        F: FnOnce(&ParkThread) -> R,
-    {
+    fn with_current<F: FnOnce(&ParkThread) -> R, R>(&self, f: F) -> Result<R, AccessError> {
         CURRENT_PARKER.try_with(|inner| f(inner))
     }
 

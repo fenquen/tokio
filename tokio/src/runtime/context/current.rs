@@ -60,7 +60,7 @@ pub(crate) fn trySetCurrentSchedulerHandleEnum(schedulerHandleEnum: &scheduler::
     CONTEXT.try_with(|ctx| ctx.set_current(schedulerHandleEnum)).ok()
 }
 
-pub(crate) fn with_current<F, R>(f: F) -> Result<R, TryCurrentError>
+pub(crate) fn withCurrentSchedulerHandleEnum<F, R>(f: F) -> Result<R, TryCurrentError>
 where
     F: FnOnce(&scheduler::SchedulerHandleEnum) -> R,
 {

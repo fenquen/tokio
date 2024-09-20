@@ -955,7 +955,6 @@ impl Context {
         F::Output: 'static,
     {
         let id = crate::runtime::task::Id::next();
-        let future = crate::util::trace::task(future, "local", name, id.as_u64());
 
         // Safety: called from the thread that owns the `LocalSet`
         let (handle, notified) = {
@@ -1075,31 +1074,6 @@ impl task::Schedule for Arc<Shared> {
     fn hooks(&self) -> TaskHarnessScheduleHooks {
         TaskHarnessScheduleHooks {
             task_terminate_callback: None,
-        }
-    }
-
-    cfg_unstable! {
-        fn unhandled_panic(&self) {
-            use crate::runtime::UnhandledPanic;
-
-            match self.unhandled_panic {
-                UnhandledPanic::Ignore => {
-                    // Do nothing
-                }
-                UnhandledPanic::ShutdownRuntime => {
-                    // This hook is only called from within the runtime, so
-                    // `CURRENT` should match with `&self`, i.e. there is no
-                    // opportunity for a nested scheduler to be called.
-                    CURRENT.with(|LocalData { ctx, .. }| match ctx.get() {
-                        Some(cx) if Arc::ptr_eq(self, &cx.shared) => {
-                            cx.unhandled_panic.set(true);
-                            // Safety: this is always called from the thread that owns `LocalSet`
-                            unsafe { cx.shared.local_state.close_and_shutdown_all(); }
-                        }
-                        _ => unreachable!("runtime core not set in CURRENT thread-local"),
-                    })
-                }
-            }
         }
     }
 }

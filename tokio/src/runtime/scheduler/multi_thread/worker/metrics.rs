@@ -1,6 +1,6 @@
-use super::workerSharedState;
+use super::WorkerSharedState;
 
-impl workerSharedState {
+impl WorkerSharedState {
     pub(crate) fn injection_queue_depth(&self) -> usize {
         self.injectShared.len()
     }

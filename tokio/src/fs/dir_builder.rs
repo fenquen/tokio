@@ -18,37 +18,11 @@ pub struct DirBuilder {
 }
 
 impl DirBuilder {
-    /// Creates a new set of options with default mode/security settings for all
-    /// platforms and also non-recursive.
-    ///
-    /// This is an async version of [`std::fs::DirBuilder::new`].
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::DirBuilder;
-    ///
-    /// let builder = DirBuilder::new();
-    /// ```
     pub fn new() -> Self {
         DirBuilder::default()
     }
 
     /// Indicates whether to create directories recursively (including all parent directories).
-    /// Parents that do not exist are created with the same security and permissions settings.
-    ///
-    /// This option defaults to `false`.
-    ///
-    /// This is an async version of [`std::fs::DirBuilder::recursive`].
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::DirBuilder;
-    ///
-    /// let mut builder = DirBuilder::new();
-    /// builder.recursive(true);
-    /// ```
     pub fn recursive(&mut self, recursive: bool) -> &mut Self {
         self.recursive = recursive;
         self

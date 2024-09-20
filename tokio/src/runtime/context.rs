@@ -11,7 +11,7 @@ cfg_rt! {
     pub(crate) use blocking::{disallow_block_in_place, try_enter_blocking_region, BlockingRegionGuard};
 
     mod current;
-    pub(crate) use current::{with_current, trySetCurrentSchedulerHandleEnum, SetCurrentGuard};
+    pub(crate) use current::{withCurrentSchedulerHandleEnum, trySetCurrentSchedulerHandleEnum, SetCurrentGuard};
 
     mod runtime;
     pub(crate) use runtime::{EnterRuntime, enter_runtime};

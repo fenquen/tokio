@@ -443,12 +443,6 @@ impl Runtime {
     pub fn shutdown_background(self) {
         self.shutdown_timeout(Duration::from_nanos(0));
     }
-
-    /// Returns a view that lets you get information about how the runtime
-    /// is performing.
-    pub fn metrics(&self) -> crate::runtime::RuntimeMetrics {
-        self.runtimeHandle.metrics()
-    }
 }
 
 #[allow(clippy::single_match)] // there are comments in the error branch, so we don't want if-let
@@ -463,12 +457,6 @@ impl Drop for Runtime {
             }
             #[cfg(feature = "rt-multi-thread")]
             SchedulerEnum::MultiThread(multi_thread) => {
-                // The threaded scheduler drops its tasks on its worker threads, which is
-                // already in the runtime's context.
-                multi_thread.shutdown(&self.runtimeHandle.schedulerHandleEnum);
-            }
-            #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            SchedulerEnum::MultiThreadAlt(multi_thread) => {
                 // The threaded scheduler drops its tasks on its worker threads, which is
                 // already in the runtime's context.
                 multi_thread.shutdown(&self.runtimeHandle.schedulerHandleEnum);

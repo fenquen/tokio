@@ -10,7 +10,6 @@ pub(crate) struct Shared<T: 'static> {
     /// Number of pending tasks in the queue. This helps prevent unnecessary
     /// locking in the hot path.
     pub(super) len: AtomicUsize,
-
     _p: PhantomData<T>,
 }
 

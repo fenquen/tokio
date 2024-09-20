@@ -294,13 +294,10 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
 /// Currently only blocking tasks use this method.
 #[cfg(feature = "rt")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
-pub(crate) fn unowned<T, S>(task: T, scheduler: S, taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>)
-where
-    S: Schedule,
-    T: Send + Future + 'static,
-    T::Output: Send + 'static,
-{
-    let (task, notified, join) = new_task(task, scheduler, taskId);
+pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Schedule>(task: T,
+                                                                                       scheduler: S,
+                                                                                       taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>) {
+    let (task, notified, join) = newTask(task, scheduler, taskId);
 
     // This transfers the ref-count of (task and notified) into an UnownedTask.
     // This is valid because an UnownedTask holds two ref-counts.
@@ -315,19 +312,16 @@ where
     (unownedTask, join)
 }
 
-/// This is the constructor for a new task. Three references to the task are
+/// This is the constructor for a new rawTask. Three references to the rawTask are
 /// created. The first task reference is usually put into an `OwnedTasks`
 /// immediately. The Notified is sent to the scheduler as an ordinary
 /// notification.
 #[cfg(feature = "rt")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
-fn new_task<T, S>(task: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>)
-where
-    S: Schedule,
-    T: Future + 'static,
-    T::Output: 'static,
-{
-    let rawTask = RawTask::new::<T, S>(task, scheduler, taskId);
+fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T,
+                                                              scheduler: S,
+                                                              taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>) {
+    let rawTask = RawTask::new::<T, S>(future, scheduler, taskId);
 
     let task = Task {
         rawTask,
@@ -364,32 +358,6 @@ impl<S: 'static> Task<S> {
     fn header_ptr(&self) -> NonNull<Header> {
         self.rawTask.header_ptr()
     }
-
-    cfg_taskdump! {
-        /// Notify the task for task dumping.
-        ///
-        /// Returns `None` if the task has already been notified.
-        pub(super) fn notify_for_tracing(&self) -> Option<Notified<S>> {
-            if self.as_raw().state().transition_to_notified_for_tracing() {
-                // SAFETY: `transition_to_notified_for_tracing` increments the
-                // refcount.
-                Some(unsafe { Notified(Task::new(self.rawTask)) })
-            } else {
-                None
-            }
-        }
-
-        /// Returns a [task ID] that uniquely identifies this task relative to other
-        /// currently spawned tasks.
-        ///
-        /// [task ID]: crate::task::Id
-        #[cfg(tokio_unstable)]
-        #[cfg_attr(docsrs, doc(cfg(tokio_unstable)))]
-        pub(crate) fn id(&self) -> crate::task::Id {
-            // Safety: The header pointer is valid.
-            unsafe { Header::get_id(self.rawTask.header_ptr()) }
-        }
-    }
 }
 
 impl<S: 'static> Notified<S> {
@@ -411,9 +379,9 @@ impl<S: 'static> Notified<S> {
 impl<S: Schedule> Task<S> {
     /// Preemptively cancels the task as part of the shutdown process.
     pub(crate) fn shutdown(self) {
-        let raw = self.rawTask;
+        let rawTask = self.rawTask;
         mem::forget(self);
-        raw.shutdown();
+        rawTask.shutdown();
     }
 }
 
@@ -503,7 +471,7 @@ unsafe impl<S> linked_list::Link for Task<S> {
     type Handle = Task<S>;
     type Target = Header;
 
-    fn as_raw(handle: &Task<S>) -> NonNull<Header> {
+    fn as_raw(handle: &Task<S>) -> NonNull<Self::Target> {
         handle.rawTask.header_ptr()
     }
 
@@ -524,7 +492,7 @@ unsafe impl<S> linked_list::Link for Task<S> {
 unsafe impl<S> sharded_list::ShardedListItem for Task<S> {
     unsafe fn get_shard_id(target: NonNull<Self::Target>) -> usize {
         // SAFETY: The caller guarantees that `target` points at a valid task.
-        let task_id = unsafe { Header::get_id(target) };
-        task_id.0.get() as usize
+        let taskId = unsafe { Header::get_id(target) };
+        taskId.0.get() as usize
     }
 }

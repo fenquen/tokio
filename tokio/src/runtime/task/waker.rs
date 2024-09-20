@@ -38,29 +38,6 @@ impl<S> ops::Deref for WakerRef<'_, S> {
     }
 }
 
-cfg_trace! {
-    macro_rules! trace {
-        ($header:expr, $op:expr) => {
-            if let Some(id) = Header::get_tracing_id(&$header) {
-                tracing::trace!(
-                    target: "tokio::task::waker",
-                    op = $op,
-                    task.id = id.into_u64(),
-                );
-            }
-        }
-    }
-}
-
-cfg_not_trace! {
-    macro_rules! trace {
-        ($header:expr, $op:expr) => {
-            // noop
-            let _ = &$header;
-        }
-    }
-}
-
 unsafe fn clone_waker(ptr: *const ()) -> RawWaker {
     let header = NonNull::new_unchecked(ptr as *mut Header);
     header.as_ref().state.ref_inc();

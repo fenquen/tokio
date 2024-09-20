@@ -3,14 +3,14 @@
 use crate::runtime::handle::RuntimeHandle;
 #[cfg(tokio_unstable)]
 use crate::runtime::TaskMeta;
-use crate::runtime::{blocking, driver, Callback, HistogramBuilder, Runtime, TaskCallback};
+use crate::runtime::{blocking, driver, Callback, Runtime, TaskCallback};
 use crate::util::rand::{RngSeed, RngSeedGenerator};
 
+use crate::runtime::blocking::BlockingPool;
+use crate::runtime::scheduler::SchedulerHandleEnum;
 use std::fmt;
 use std::io;
 use std::time::Duration;
-use crate::runtime::blocking::BlockingPool;
-use crate::runtime::scheduler::SchedulerHandleEnum;
 
 /// ```
 /// use tokio::runtime::Builder;
@@ -100,13 +100,6 @@ pub struct Builder {
 
     /// When true, enables task poll count histogram instrumentation.
     pub(super) metrics_poll_count_histogram_enable: bool,
-
-    /// Configures the task poll count histogram
-    pub(super) metrics_poll_count_histogram: HistogramBuilder,
-
-    #[cfg(tokio_unstable)]
-    pub(super) unhandled_panic: UnhandledPanic,
-
 }
 
 pub(crate) type ThreadNameFn = std::sync::Arc<dyn Fn() -> String + Send + Sync + 'static>;
@@ -205,8 +198,6 @@ impl Builder {
             unhandled_panic: UnhandledPanic::Ignore,
 
             metrics_poll_count_histogram_enable: false,
-
-            metrics_poll_count_histogram: HistogramBuilder::default(),
 
             disable_lifo_slot: false,
         }
@@ -552,7 +543,6 @@ impl Builder {
                 unhandled_panic: self.unhandled_panic.clone(),
                 disable_lifo_slot: self.disable_lifo_slot,
                 seed_generator: seed_generator_1,
-                metrics_poll_count_histogram: self.metrics_poll_count_histogram_builder(),
             },
         );
 
@@ -567,13 +557,6 @@ impl Builder {
         ))
     }
 
-    fn metrics_poll_count_histogram_builder(&self) -> Option<HistogramBuilder> {
-        if self.metrics_poll_count_histogram_enable {
-            Some(self.metrics_poll_count_histogram.clone())
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
@@ -609,8 +592,8 @@ impl Builder {
 impl Builder {
     fn build_threaded_runtime(&mut self) -> io::Result<Runtime> {
         use crate::loom::sys::num_cpus;
-        use crate::runtime::{Config, runtime::SchedulerEnum};
-        use crate::runtime::scheduler::{self, MultiThread};
+        use crate::runtime::{runtime::SchedulerEnum, Config};
+        use crate::runtime::scheduler::MultiThread;
 
         let workerThreadCount = self.worker_threads.unwrap_or_else(num_cpus);
 
@@ -641,7 +624,6 @@ impl Builder {
                     local_queue_capacity: self.local_queue_capacity,
                     disable_lifo_slot: self.disable_lifo_slot,
                     seed_generator: seed_generator_1,
-                    metrics_poll_count_histogram: self.metrics_poll_count_histogram_builder(),
                 },
             );
 

@@ -1,6 +1,6 @@
 #[cfg(tokio_unstable)]
 use crate::runtime;
-use crate::runtime::{context, scheduler, RuntimeFlavor, RuntimeMetrics};
+use crate::runtime::{context, scheduler, RuntimeFlavor};
 
 /// Handle to the runtime.
 ///
@@ -103,7 +103,7 @@ impl RuntimeHandle {
     ///
     /// Contrary to `current`, this never panics
     pub fn try_current() -> Result<Self, TryCurrentError> {
-        context::with_current(|inner| RuntimeHandle {
+        context::withCurrentSchedulerHandleEnum(|inner| RuntimeHandle {
             schedulerHandleEnum: inner.clone(),
         })
     }
@@ -273,15 +273,7 @@ impl RuntimeHandle {
             scheduler::SchedulerHandleEnum::CurrentThread(_) => RuntimeFlavor::CurrentThread,
             #[cfg(feature = "rt-multi-thread")]
             scheduler::SchedulerHandleEnum::MultiThread(_) => RuntimeFlavor::MultiThread,
-            #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-            scheduler::SchedulerHandleEnum::MultiThreadAlt(_) => RuntimeFlavor::MultiThreadAlt,
         }
-    }
-
-    /// Returns a view that lets you get information about how the runtime
-    /// is performing.
-    pub fn metrics(&self) -> RuntimeMetrics {
-        RuntimeMetrics::new(self.clone())
     }
 }
 
