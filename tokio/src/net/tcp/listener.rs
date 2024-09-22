@@ -387,39 +387,3 @@ mod sys {
         }
     }
 }
-
-cfg_unstable! {
-    #[cfg(target_os = "wasi")]
-    mod sys {
-        use super::TcpListener;
-        use std::os::wasi::prelude::*;
-
-        impl AsRawFd for TcpListener {
-            fn as_raw_fd(&self) -> RawFd {
-                self.io.as_raw_fd()
-            }
-        }
-
-        impl AsFd for TcpListener {
-            fn as_fd(&self) -> BorrowedFd<'_> {
-                unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
-            }
-        }
-    }
-}
-
-cfg_windows! {
-    use crate::os::windows::io::{AsRawSocket, RawSocket, AsSocket, BorrowedSocket};
-
-    impl AsRawSocket for TcpListener {
-        fn as_raw_socket(&self) -> RawSocket {
-            self.io.as_raw_socket()
-        }
-    }
-
-    impl AsSocket for TcpListener {
-        fn as_socket(&self) -> BorrowedSocket<'_> {
-            unsafe { BorrowedSocket::borrow_raw(self.as_raw_socket()) }
-        }
-    }
-}

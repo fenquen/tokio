@@ -1,7 +1,5 @@
 use super::batch_semaphore as ll; // low level implementation
 use super::{AcquireError, TryAcquireError};
-#[cfg(all(tokio_unstable, feature = "tracing"))]
-use crate::util::trace;
 use std::sync::Arc;
 
 /// Counting semaphore performing asynchronous permit acquisition.
@@ -392,8 +390,6 @@ use std::sync::Arc;
 pub struct Semaphore {
     /// The low level semaphore
     ll_sem: ll::Semaphore,
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
 }
 
 /// A permit from the semaphore.
@@ -448,32 +444,12 @@ impl Semaphore {
     /// Panics if `permits` exceeds [`Semaphore::MAX_PERMITS`].
     #[track_caller]
     pub fn new(permits: usize) -> Self {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let resource_span = {
-            let location = std::panic::Location::caller();
-
-            tracing::trace_span!(
-                parent: None,
-                "runtime.resource",
-                concrete_type = "Semaphore",
-                kind = "Sync",
-                loc.file = location.file(),
-                loc.line = location.line(),
-                loc.col = location.column(),
-                inherits_child_attrs = true,
-            )
-        };
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let ll_sem = resource_span.in_scope(|| ll::Semaphore::new(permits));
 
         #[cfg(any(not(tokio_unstable), not(feature = "tracing")))]
         let ll_sem = ll::Semaphore::new(permits);
 
         Self {
             ll_sem,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span,
         }
     }
 
@@ -498,8 +474,6 @@ impl Semaphore {
     pub const fn const_new(permits: usize) -> Self {
         Self {
             ll_sem: ll::Semaphore::const_new(permits),
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: tracing::Span::none(),
         }
     }
 
@@ -507,8 +481,6 @@ impl Semaphore {
     pub(crate) fn new_closed() -> Self {
         Self {
             ll_sem: ll::Semaphore::new_closed(),
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: tracing::Span::none(),
         }
     }
 
@@ -517,8 +489,6 @@ impl Semaphore {
     pub(crate) const fn const_new_closed() -> Self {
         Self {
             ll_sem: ll::Semaphore::const_new_closed(),
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: tracing::Span::none(),
         }
     }
 
@@ -577,14 +547,6 @@ impl Semaphore {
     /// [`AcquireError`]: crate::sync::AcquireError
     /// [`SemaphorePermit`]: crate::sync::SemaphorePermit
     pub async fn acquire(&self) -> Result<SemaphorePermit<'_>, AcquireError> {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let inner = trace::async_op(
-            || self.ll_sem.acquire(1),
-            self.resource_span.clone(),
-            "Semaphore::acquire",
-            "poll",
-            true,
-        );
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         let inner = self.ll_sem.acquire(1);
 
@@ -624,16 +586,6 @@ impl Semaphore {
     /// [`AcquireError`]: crate::sync::AcquireError
     /// [`SemaphorePermit`]: crate::sync::SemaphorePermit
     pub async fn acquire_many(&self, n: u32) -> Result<SemaphorePermit<'_>, AcquireError> {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        trace::async_op(
-            || self.ll_sem.acquire(n as usize),
-            self.resource_span.clone(),
-            "Semaphore::acquire_many",
-            "poll",
-            true,
-        )
-        .await?;
-
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         self.ll_sem.acquire(n as usize).await?;
 
@@ -759,14 +711,6 @@ impl Semaphore {
     /// [`AcquireError`]: crate::sync::AcquireError
     /// [`OwnedSemaphorePermit`]: crate::sync::OwnedSemaphorePermit
     pub async fn acquire_owned(self: Arc<Self>) -> Result<OwnedSemaphorePermit, AcquireError> {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let inner = trace::async_op(
-            || self.ll_sem.acquire(1),
-            self.resource_span.clone(),
-            "Semaphore::acquire_owned",
-            "poll",
-            true,
-        );
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         let inner = self.ll_sem.acquire(1);
 
@@ -823,14 +767,6 @@ impl Semaphore {
         self: Arc<Self>,
         n: u32,
     ) -> Result<OwnedSemaphorePermit, AcquireError> {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let inner = trace::async_op(
-            || self.ll_sem.acquire(n as usize),
-            self.resource_span.clone(),
-            "Semaphore::acquire_many_owned",
-            "poll",
-            true,
-        );
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         let inner = self.ll_sem.acquire(n as usize);
 

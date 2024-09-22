@@ -356,17 +356,6 @@ cfg_rt! {
     // Uses #[cfg(...)] instead of macro since the macro adds docsrs annotations.
     #[cfg(not(tokio_unstable))]
     mod join_set;
-    #[cfg(tokio_unstable)]
-    pub mod join_set;
-
-    cfg_unstable! {
-        pub use crate::runtime::task::{Id, id, try_id};
-    }
-
-    cfg_trace! {
-        mod builder;
-        pub use builder::Builder;
-    }
 
     /// Task-related futures.
     pub mod futures {

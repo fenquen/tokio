@@ -8,10 +8,6 @@ use std::net::SocketAddr;
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
 use std::time::Duration;
 
-cfg_windows! {
-    use crate::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket, RawSocket, AsSocket, BorrowedSocket};
-}
-
 cfg_net! {
     /// A TCP socket that has not yet been converted to a `TcpStream` or
     /// `TcpListener`.
@@ -788,39 +784,6 @@ cfg_unix! {
     impl IntoRawFd for TcpSocket {
         fn into_raw_fd(self) -> RawFd {
             self.inner.into_raw_fd()
-        }
-    }
-}
-
-cfg_windows! {
-    impl IntoRawSocket for TcpSocket {
-        fn into_raw_socket(self) -> RawSocket {
-            self.inner.into_raw_socket()
-        }
-    }
-
-    impl AsRawSocket for TcpSocket {
-        fn as_raw_socket(&self) -> RawSocket {
-            self.inner.as_raw_socket()
-        }
-    }
-
-    impl AsSocket for TcpSocket {
-        fn as_socket(&self) -> BorrowedSocket<'_> {
-            unsafe { BorrowedSocket::borrow_raw(self.as_raw_socket()) }
-        }
-    }
-
-    impl FromRawSocket for TcpSocket {
-        /// Converts a `RawSocket` to a `TcpStream`.
-        ///
-        /// # Notes
-        ///
-        /// The caller is responsible for ensuring that the socket is in
-        /// non-blocking mode.
-        unsafe fn from_raw_socket(socket: RawSocket) -> TcpSocket {
-            let inner = socket2::Socket::from_raw_socket(socket);
-            TcpSocket { inner }
         }
     }
 }

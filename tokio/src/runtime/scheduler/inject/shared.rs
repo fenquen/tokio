@@ -59,10 +59,6 @@ impl<T: 'static> Shared<T> {
 
     /// Pushes a value into the queue.
     ///
-    /// This does nothing if the queue is closed.
-    ///
-    /// # Safety
-    ///
     /// Must be called with the same `Synced` instance returned by `Inject::new`
     pub(crate) unsafe fn push(&self, synced: &mut InjectSyncState, task: task::Notified<T>) {
         if synced.is_closed {

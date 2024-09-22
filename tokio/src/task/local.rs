@@ -1,8 +1,6 @@
 //! Runs `!Send` futures on the current thread.
 use crate::loom::cell::UnsafeCell;
 use crate::loom::sync::{Arc, Mutex};
-#[cfg(tokio_unstable)]
-use crate::runtime;
 use crate::runtime::task::{self, JoinHandle, LocalOwnedTasks, Task, TaskHarnessScheduleHooks};
 use crate::runtime::{context, ThreadId, BOX_FUTURE_THRESHOLD};
 use crate::sync::AtomicWaker;
@@ -250,10 +248,6 @@ struct Shared {
 
     /// Wake the `LocalSet` task.
     waker: AtomicWaker,
-
-    /// How to respond to unhandled task panics.
-    #[cfg(tokio_unstable)]
-    pub(crate) unhandled_panic: crate::runtime::UnhandledPanic,
 }
 
 /// Tracks the `LocalSet` state that must only be accessed from the thread that
@@ -442,8 +436,6 @@ impl LocalSet {
                     },
                     queue: Mutex::new(Some(VecDeque::with_capacity(INITIAL_CAPACITY))),
                     waker: AtomicWaker::new(),
-                    #[cfg(tokio_unstable)]
-                    unhandled_panic: crate::runtime::UnhandledPanic::Ignore,
                 }),
                 unhandled_panic: Cell::new(false),
             }),
@@ -761,101 +753,6 @@ impl LocalSet {
         match res {
             Ok(res) => res,
             Err(_access_error) => (f.take().unwrap())(),
-        }
-    }
-}
-
-cfg_unstable! {
-    impl LocalSet {
-        /// Configure how the `LocalSet` responds to an unhandled panic on a
-        /// spawned task.
-        ///
-        /// By default, an unhandled panic (i.e. a panic not caught by
-        /// [`std::panic::catch_unwind`]) has no impact on the `LocalSet`'s
-        /// execution. The panic is error value is forwarded to the task's
-        /// [`JoinHandle`] and all other spawned tasks continue running.
-        ///
-        /// The `unhandled_panic` option enables configuring this behavior.
-        ///
-        /// * `UnhandledPanic::Ignore` is the default behavior. Panics on
-        ///   spawned tasks have no impact on the `LocalSet`'s execution.
-        /// * `UnhandledPanic::ShutdownRuntime` will force the `LocalSet` to
-        ///   shutdown immediately when a spawned task panics even if that
-        ///   task's `JoinHandle` has not been dropped. All other spawned tasks
-        ///   will immediately terminate and further calls to
-        ///   [`LocalSet::block_on`] and [`LocalSet::run_until`] will panic.
-        ///
-        /// # Panics
-        ///
-        /// This method panics if called after the `LocalSet` has started
-        /// running.
-        ///
-        /// # Unstable
-        ///
-        /// This option is currently unstable and its implementation is
-        /// incomplete. The API may change or be removed in the future. See
-        /// tokio-rs/tokio#4516 for more details.
-        ///
-        /// # Examples
-        ///
-        /// The following demonstrates a `LocalSet` configured to shutdown on
-        /// panic. The first spawned task panics and results in the `LocalSet`
-        /// shutting down. The second spawned task never has a chance to
-        /// execute. The call to `run_until` will panic due to the runtime being
-        /// forcibly shutdown.
-        ///
-        /// ```should_panic
-        /// use tokio::runtime::UnhandledPanic;
-        ///
-        /// # #[tokio::main]
-        /// # async fn main() {
-        /// tokio::task::LocalSet::new()
-        ///     .unhandled_panic(UnhandledPanic::ShutdownRuntime)
-        ///     .run_until(async {
-        ///         tokio::task::spawn_local(async { panic!("boom"); });
-        ///         tokio::task::spawn_local(async {
-        ///             // This task never completes
-        ///         });
-        ///
-        ///         // Do some work, but `run_until` will panic before it completes
-        /// # loop { tokio::task::yield_now().await; }
-        ///     })
-        ///     .await;
-        /// # }
-        /// ```
-        ///
-        /// [`JoinHandle`]: struct@crate::task::JoinHandle
-        pub fn unhandled_panic(&mut self, behavior: crate::runtime::UnhandledPanic) -> &mut Self {
-            // TODO: This should be set as a builder
-            Rc::get_mut(&mut self.context)
-                .and_then(|ctx| Arc::get_mut(&mut ctx.shared))
-                .expect("Unhandled Panic behavior modified after starting LocalSet")
-                .unhandled_panic = behavior;
-            self
-        }
-
-        /// Returns the [`Id`] of the current `LocalSet` runtime.
-        ///
-        /// # Examples
-        ///
-        /// ```rust
-        /// use tokio::task;
-        ///
-        /// #[tokio::main]
-        /// async fn main() {
-        ///     let local_set = task::LocalSet::new();
-        ///     println!("Local set id: {}", local_set.id());
-        /// }
-        /// ```
-        ///
-        /// **Note**: This is an [unstable API][unstable]. The public API of this type
-        /// may break in 1.x releases. See [the documentation on unstable
-        /// features][unstable] for details.
-        ///
-        /// [unstable]: crate#unstable-features
-        /// [`Id`]: struct@crate::runtime::Id
-        pub fn id(&self) -> runtime::Id {
-            self.context.shared.local_state.owned.id.into()
         }
     }
 }

@@ -67,22 +67,6 @@ mod sys {
     }
 }
 
-cfg_windows! {
-    use crate::os::windows::io::{AsHandle, BorrowedHandle, AsRawHandle, RawHandle};
-
-    impl AsRawHandle for Stdin {
-        fn as_raw_handle(&self) -> RawHandle {
-            std::io::stdin().as_raw_handle()
-        }
-    }
-
-    impl AsHandle for Stdin {
-        fn as_handle(&self) -> BorrowedHandle<'_> {
-            unsafe { BorrowedHandle::borrow_raw(self.as_raw_handle()) }
-        }
-    }
-}
-
 impl AsyncRead for Stdin {
     fn poll_read(
         mut self: Pin<&mut Self>,

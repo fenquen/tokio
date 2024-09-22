@@ -459,36 +459,6 @@ compile_error! {
     "Tokio requires the platform pointer width to be at least 32 bits"
 }
 
-#[cfg(all(
-    not(tokio_unstable),
-    target_family = "wasm",
-    any(
-        feature = "fs",
-        feature = "io-std",
-        feature = "net",
-        feature = "process",
-        feature = "rt-multi-thread",
-        feature = "signal"
-    )
-))]
-compile_error!("Only features sync,macros,io-util,rt,time are supported on wasm.");
-
-#[cfg(all(not(tokio_unstable), tokio_taskdump))]
-compile_error!("The `tokio_taskdump` feature requires `--cfg tokio_unstable`.");
-
-#[cfg(all(
-    tokio_taskdump,
-    not(doc),
-    not(all(
-        target_os = "linux",
-        any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-    ))
-))]
-compile_error!(
-    "The `tokio_taskdump` feature is only currently supported on \
-linux, on `aarch64`, `x86` and `x86_64`."
-);
-
 // Includes re-exports used by macros.
 //
 // This module is not intended to be part of the public API. In general, any
@@ -558,10 +528,6 @@ mod trace {
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll};
-
-    cfg_taskdump! {
-        pub(crate) use crate::runtime::task::trace::trace_leaf;
-    }
 
     cfg_not_taskdump! {
         #[inline(always)]
@@ -691,7 +657,3 @@ cfg_macros! {
 #[cfg(feature = "io-util")]
 #[cfg(test)]
 fn is_unpin<T: Unpin>() {}
-
-/// fuzz test (`fuzz_linked_list`)
-#[cfg(fuzzing)]
-pub mod fuzz;

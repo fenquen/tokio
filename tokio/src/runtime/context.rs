@@ -22,10 +22,6 @@ cfg_rt! {
     use crate::runtime::{scheduler, task::Id};
 
     use std::task::Waker;
-
-    cfg_taskdump! {
-        use crate::runtime::task::trace;
-    }
 }
 
 cfg_rt_multi_thread! {
@@ -157,13 +153,5 @@ cfg_rt! {
     pub(super) fn with_scheduler<R>(f: impl FnOnce(Option<&scheduler::ThreadLocalContextEnum>) -> R) -> R {
         let mut f = Some(f);
         CONTEXT.try_with(|c| c.threadLocalContextEnum.with(f.take().unwrap())).unwrap_or_else(|_| (f.take().unwrap())(None))
-    }
-
-    cfg_taskdump! {
-        /// SAFETY: Callers of this function must ensure that trace frames always
-        /// form a valid linked list.
-        pub(crate) unsafe fn with_trace<R>(f: impl FnOnce(&trace::Context) -> R) -> Option<R> {
-            CONTEXT.try_with(|c| f(&c.trace)).ok()
-        }
     }
 }

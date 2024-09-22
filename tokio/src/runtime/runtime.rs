@@ -10,10 +10,6 @@ use std::time::Duration;
 cfg_rt_multi_thread! {
     use crate::runtime::Builder;
     use crate::runtime::scheduler::MultiThread;
-
-    cfg_unstable! {
-        use crate::runtime::scheduler::MultiThreadAlt;
-    }
 }
 
 /// The Tokio runtime.
@@ -115,9 +111,6 @@ pub enum RuntimeFlavor {
     CurrentThread,
     /// The flavor that executes tasks across multiple threads.
     MultiThread,
-    /// The flavor that executes tasks across multiple threads.
-    #[cfg(tokio_unstable)]
-    MultiThreadAlt,
 }
 
 #[derive(Debug)]

@@ -2021,20 +2021,3 @@ mod sys {
         }
     }
 }
-
-cfg_windows! {
-    use crate::os::windows::io::{AsRawSocket, RawSocket};
-    use crate::os::windows::io::{AsSocket, BorrowedSocket};
-
-    impl AsRawSocket for UdpSocket {
-        fn as_raw_socket(&self) -> RawSocket {
-            self.io.as_raw_socket()
-        }
-    }
-
-    impl AsSocket for UdpSocket {
-        fn as_socket(&self) -> BorrowedSocket<'_> {
-            unsafe { BorrowedSocket::borrow_raw(self.as_raw_socket()) }
-        }
-    }
-}

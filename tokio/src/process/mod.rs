@@ -393,17 +393,6 @@ impl Command {
         self
     }
 
-    cfg_windows! {
-        /// Append literal text to the command line without any quoting or escaping.
-        ///
-        /// This is useful for passing arguments to `cmd.exe /c`, which doesn't follow
-        /// `CommandLineToArgvW` escaping rules.
-        pub fn raw_arg<S: AsRef<OsStr>>(&mut self, text_to_append_as_is: S) -> &mut Command {
-            self.std.raw_arg(text_to_append_as_is);
-            self
-        }
-    }
-
     /// Inserts or updates an environment variable mapping.
     ///
     /// Note that environment variable names are case-insensitive (but case-preserving) on Windows,
@@ -645,18 +634,6 @@ impl Command {
     pub fn kill_on_drop(&mut self, kill_on_drop: bool) -> &mut Command {
         self.kill_on_drop = kill_on_drop;
         self
-    }
-
-    cfg_windows! {
-        /// Sets the [process creation flags][1] to be passed to `CreateProcess`.
-        ///
-        /// These will always be ORed with `CREATE_UNICODE_ENVIRONMENT`.
-        ///
-        /// [1]: https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863(v=vs.85).aspx
-        pub fn creation_flags(&mut self, flags: u32) -> &mut Command {
-            self.std.creation_flags(flags);
-            self
-        }
     }
 
     /// Sets the child process's user ID. This translates to a
@@ -1094,17 +1071,6 @@ impl Child {
         match &self.child {
             FusedChild::Child(child) => Some(child.inner.id()),
             FusedChild::Done(_) => None,
-        }
-    }
-
-    cfg_windows! {
-        /// Extracts the raw handle of the process associated with this child while
-        /// it is still running. Returns `None` if the child has exited.
-        pub fn raw_handle(&self) -> Option<RawHandle> {
-            match &self.child {
-                FusedChild::Child(c) => Some(c.inner.as_raw_handle()),
-                FusedChild::Done(_) => None,
-            }
         }
     }
 

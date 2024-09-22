@@ -197,8 +197,6 @@ pub(crate) fn trace_leaf(cx: &mut task::Context<'_>) -> Poll<()> {
                     scheduler::ThreadLocalContextEnum::CurrentThread(s) => s.defer.defer(cx.waker()),
                     #[cfg(feature = "rt-multi-thread")]
                     scheduler::ThreadLocalContextEnum::MultiThread(s) => s.defer.defer(cx.waker()),
-                    #[cfg(all(tokio_unstable, feature = "rt-multi-thread"))]
-                    scheduler::ThreadLocalContextEnum::MultiThreadAlt(_) => unimplemented!(),
                 }
             }
         });

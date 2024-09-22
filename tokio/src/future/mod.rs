@@ -19,12 +19,6 @@ cfg_sync! {
     pub(crate) use block_on::block_on;
 }
 
-cfg_trace! {
-    mod trace;
-    #[allow(unused_imports)]
-    pub(crate) use trace::InstrumentedFuture as Future;
-}
-
 cfg_not_trace! {
     cfg_rt! {
         pub(crate) use std::future::Future;

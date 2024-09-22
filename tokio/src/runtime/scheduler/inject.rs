@@ -16,10 +16,6 @@ cfg_rt_multi_thread! {
     mod rt_multi_thread;
 }
 
-cfg_unstable_metrics! {
-    mod metrics;
-}
-
 /// Growable, MPMC queue used to inject new tasks into the scheduler and as an
 /// overflow queue when the local, fixed-size, array queue overflows.
 pub(crate) struct Inject<T: 'static> {
@@ -35,13 +31,6 @@ impl<T: 'static> Inject<T> {
             shared,
             synced: Mutex::new(synced),
         }
-    }
-
-    // Kind of annoying to have to include the cfg here
-    #[cfg(tokio_taskdump)]
-    pub(crate) fn is_closed(&self) -> bool {
-        let synced = self.synced.lock();
-        self.shared.is_closed(&synced)
     }
 
     /// Closes the injection queue, returns `true` if the queue is open when the

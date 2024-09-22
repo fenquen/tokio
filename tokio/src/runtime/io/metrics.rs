@@ -14,11 +14,3 @@ cfg_not_rt_and_metrics_and_net! {
         pub(crate) fn incr_ready_count_by(&self, _amt: u64) {}
     }
 }
-
-cfg_net! {
-    cfg_rt! {
-        cfg_unstable_metrics! {
-            pub(crate) use crate::runtime::IoDriverMetrics;
-        }
-    }
-}

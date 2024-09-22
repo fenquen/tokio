@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "sync"), allow(unreachable_pub, dead_code))]
 
 use crate::sync::batch_semaphore as semaphore;
-#[cfg(all(tokio_unstable, feature = "tracing"))]
-use crate::util::trace;
 
 use std::cell::UnsafeCell;
 use std::error::Error;
@@ -131,8 +129,6 @@ use std::{fmt, mem, ptr};
 /// [`Send`]: trait@std::marker::Send
 /// [`lock`]: method@Mutex::lock
 pub struct Mutex<T: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     s: semaphore::Semaphore,
     c: UnsafeCell<T>,
 }
@@ -151,8 +147,6 @@ pub struct Mutex<T: ?Sized> {
 pub struct MutexGuard<'a, T: ?Sized> {
     // When changing the fields in this struct, make sure to update the
     // `skip_drop` method.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     lock: &'a Mutex<T>,
 }
 
@@ -173,10 +167,6 @@ pub struct MutexGuard<'a, T: ?Sized> {
 /// [`Arc`]: std::sync::Arc
 #[clippy::has_significant_drop]
 pub struct OwnedMutexGuard<T: ?Sized> {
-    // When changing the fields in this struct, make sure to update the
-    // `skip_drop` method.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     lock: Arc<Mutex<T>>,
 }
 
@@ -188,10 +178,6 @@ pub struct OwnedMutexGuard<T: ?Sized> {
 #[clippy::has_significant_drop]
 #[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MappedMutexGuard<'a, T: ?Sized> {
-    // When changing the fields in this struct, make sure to update the
-    // `skip_drop` method.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     s: &'a semaphore::Semaphore,
     data: *mut T,
     // Needed to tell the borrow checker that we are holding a `&mut T`
@@ -207,10 +193,6 @@ pub struct MappedMutexGuard<'a, T: ?Sized> {
 #[clippy::has_significant_drop]
 #[must_use = "if unused the Mutex will immediately unlock"]
 pub struct OwnedMappedMutexGuard<T: ?Sized, U: ?Sized = T> {
-    // When changing the fields in this struct, make sure to update the
-    // `skip_drop` method.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     data: *mut U,
     lock: Arc<Mutex<T>>,
 }
@@ -219,16 +201,12 @@ pub struct OwnedMappedMutexGuard<T: ?Sized, U: ?Sized = T> {
 /// Drop implementation.
 #[allow(dead_code)] // Unused fields are still used in Drop.
 struct MutexGuardInner<'a, T: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     lock: &'a Mutex<T>,
 }
 
 /// A helper type used when taking apart a `OwnedMutexGuard` without running
 /// its Drop implementation.
 struct OwnedMutexGuardInner<T: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     lock: Arc<Mutex<T>>,
 }
 
@@ -236,8 +214,6 @@ struct OwnedMutexGuardInner<T: ?Sized> {
 /// its Drop implementation.
 #[allow(dead_code)] // Unused fields are still used in Drop.
 struct MappedMutexGuardInner<'a, T: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     s: &'a semaphore::Semaphore,
     data: *mut T,
 }
@@ -246,8 +222,6 @@ struct MappedMutexGuardInner<'a, T: ?Sized> {
 /// its Drop implementation.
 #[allow(dead_code)] // Unused fields are still used in Drop.
 struct OwnedMappedMutexGuardInner<T: ?Sized, U: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     data: *mut U,
     lock: Arc<Mutex<T>>,
 }
@@ -255,7 +229,10 @@ struct OwnedMappedMutexGuardInner<T: ?Sized, U: ?Sized> {
 // As long as T: Send, it's fine to send and share Mutex<T> between threads.
 // If T was not Send, sending and sharing a Mutex<T> would be bad, since you can
 // access T through Mutex<T>.
-unsafe impl<T> Send for Mutex<T> where T: ?Sized + Send {}
+unsafe impl<T> Send for Mutex<T>
+where
+    T: ?Sized + Send,
+{}
 unsafe impl<T> Sync for Mutex<T> where T: ?Sized + Send {}
 unsafe impl<T> Sync for MutexGuard<'_, T> where T: ?Sized + Send + Sync {}
 unsafe impl<T> Sync for OwnedMutexGuard<T> where T: ?Sized + Send + Sync {}
@@ -266,14 +243,12 @@ unsafe impl<T, U> Sync for OwnedMappedMutexGuard<T, U>
 where
     T: ?Sized + Send + Sync,
     U: ?Sized + Send + Sync,
-{
-}
+{}
 unsafe impl<T, U> Send for OwnedMappedMutexGuard<T, U>
 where
     T: ?Sized + Send,
     U: ?Sized + Send,
-{
-}
+{}
 
 /// Error returned from the [`Mutex::try_lock`], [`RwLock::try_read`] and
 /// [`RwLock::try_write`] functions.
@@ -339,38 +314,12 @@ impl<T: ?Sized> Mutex<T> {
     where
         T: Sized,
     {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let resource_span = {
-            let location = std::panic::Location::caller();
-
-            tracing::trace_span!(
-                parent: None,
-                "runtime.resource",
-                concrete_type = "Mutex",
-                kind = "Sync",
-                loc.file = location.file(),
-                loc.line = location.line(),
-                loc.col = location.column(),
-            )
-        };
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let s = resource_span.in_scope(|| {
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                locked = false,
-            );
-            semaphore::Semaphore::new(1)
-        });
-
         #[cfg(any(not(tokio_unstable), not(feature = "tracing")))]
         let s = semaphore::Semaphore::new(1);
 
         Self {
             c: UnsafeCell::new(t),
             s,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span,
         }
     }
 
@@ -399,8 +348,6 @@ impl<T: ?Sized> Mutex<T> {
         Self {
             c: UnsafeCell::new(t),
             s: semaphore::Semaphore::const_new(1),
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: tracing::Span::none(),
         }
     }
 
@@ -437,30 +384,11 @@ impl<T: ?Sized> Mutex<T> {
 
             MutexGuard {
                 lock: self,
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                resource_span: self.resource_span.clone(),
             }
         };
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let acquire_fut = trace::async_op(
-            move || acquire_fut,
-            self.resource_span.clone(),
-            "Mutex::lock",
-            "poll",
-            false,
-        );
-
         #[allow(clippy::let_and_return)] // this lint triggers when disabling tracing
         let guard = acquire_fut.await;
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                locked = true,
-            );
-        });
 
         guard
     }
@@ -612,38 +540,16 @@ impl<T: ?Sized> Mutex<T> {
     ///
     /// [`Arc`]: std::sync::Arc
     pub async fn lock_owned(self: Arc<Self>) -> OwnedMutexGuard<T> {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let resource_span = self.resource_span.clone();
-
         let acquire_fut = async {
             self.acquire().await;
 
             OwnedMutexGuard {
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                resource_span: self.resource_span.clone(),
                 lock: self,
             }
         };
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let acquire_fut = trace::async_op(
-            move || acquire_fut,
-            resource_span,
-            "Mutex::lock_owned",
-            "poll",
-            false,
-        );
-
         #[allow(clippy::let_and_return)] // this lint triggers when disabling tracing
         let guard = acquire_fut.await;
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        guard.resource_span.in_scope(|| {
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                locked = true,
-            );
-        });
 
         guard
     }
@@ -680,17 +586,7 @@ impl<T: ?Sized> Mutex<T> {
             Ok(()) => {
                 let guard = MutexGuard {
                     lock: self,
-                    #[cfg(all(tokio_unstable, feature = "tracing"))]
-                    resource_span: self.resource_span.clone(),
                 };
-
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                self.resource_span.in_scope(|| {
-                    tracing::trace!(
-                        target: "runtime::resource::state_update",
-                        locked = true,
-                    );
-                });
 
                 Ok(guard)
             }
@@ -750,18 +646,8 @@ impl<T: ?Sized> Mutex<T> {
         match self.s.try_acquire(1) {
             Ok(()) => {
                 let guard = OwnedMutexGuard {
-                    #[cfg(all(tokio_unstable, feature = "tracing"))]
-                    resource_span: self.resource_span.clone(),
                     lock: self,
                 };
-
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                guard.resource_span.in_scope(|| {
-                    tracing::trace!(
-                        target: "runtime::resource::state_update",
-                        locked = true,
-                    );
-                });
 
                 Ok(guard)
             }
@@ -828,8 +714,6 @@ impl<'a, T: ?Sized> MutexGuard<'a, T> {
         // SAFETY: This duplicates the `resource_span` and then forgets the
         // original. In the end, we have not duplicated or forgotten any values.
         MutexGuardInner {
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: unsafe { std::ptr::read(&me.resource_span) },
             lock: me.lock,
         }
     }
@@ -876,8 +760,6 @@ impl<'a, T: ?Sized> MutexGuard<'a, T> {
             s: &inner.lock.s,
             data,
             marker: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         }
     }
 
@@ -928,8 +810,6 @@ impl<'a, T: ?Sized> MutexGuard<'a, T> {
             s: &inner.lock.s,
             data,
             marker: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         })
     }
 
@@ -963,14 +843,6 @@ impl<'a, T: ?Sized> MutexGuard<'a, T> {
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.s.release(1);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                locked = false,
-            );
-        });
     }
 }
 
@@ -1009,8 +881,6 @@ impl<T: ?Sized> OwnedMutexGuard<T> {
         unsafe {
             OwnedMutexGuardInner {
                 lock: ptr::read(&me.lock),
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                resource_span: ptr::read(&me.resource_span),
             }
         }
     }
@@ -1057,8 +927,6 @@ impl<T: ?Sized> OwnedMutexGuard<T> {
         OwnedMappedMutexGuard {
             data,
             lock: inner.lock,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         }
     }
 
@@ -1109,8 +977,6 @@ impl<T: ?Sized> OwnedMutexGuard<T> {
         Ok(OwnedMappedMutexGuard {
             data,
             lock: inner.lock,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         })
     }
 
@@ -1145,14 +1011,6 @@ impl<T: ?Sized> OwnedMutexGuard<T> {
 impl<T: ?Sized> Drop for OwnedMutexGuard<T> {
     fn drop(&mut self) {
         self.lock.s.release(1);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                locked = false,
-            );
-        });
     }
 }
 
@@ -1189,8 +1047,6 @@ impl<'a, T: ?Sized> MappedMutexGuard<'a, T> {
         MappedMutexGuardInner {
             s: me.s,
             data: me.data,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: unsafe { std::ptr::read(&me.resource_span) },
         }
     }
 
@@ -1213,8 +1069,6 @@ impl<'a, T: ?Sized> MappedMutexGuard<'a, T> {
             s: inner.s,
             data,
             marker: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         }
     }
 
@@ -1241,8 +1095,6 @@ impl<'a, T: ?Sized> MappedMutexGuard<'a, T> {
             s: inner.s,
             data,
             marker: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         })
     }
 }
@@ -1250,14 +1102,6 @@ impl<'a, T: ?Sized> MappedMutexGuard<'a, T> {
 impl<'a, T: ?Sized> Drop for MappedMutexGuard<'a, T> {
     fn drop(&mut self) {
         self.s.release(1);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                locked = false,
-            );
-        });
     }
 }
 
@@ -1297,8 +1141,6 @@ impl<T: ?Sized, U: ?Sized> OwnedMappedMutexGuard<T, U> {
             OwnedMappedMutexGuardInner {
                 data: me.data,
                 lock: ptr::read(&me.lock),
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                resource_span: ptr::read(&me.resource_span),
             }
         }
     }
@@ -1321,8 +1163,6 @@ impl<T: ?Sized, U: ?Sized> OwnedMappedMutexGuard<T, U> {
         OwnedMappedMutexGuard {
             data,
             lock: inner.lock,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         }
     }
 
@@ -1349,8 +1189,6 @@ impl<T: ?Sized, U: ?Sized> OwnedMappedMutexGuard<T, U> {
         Ok(OwnedMappedMutexGuard {
             data,
             lock: inner.lock,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: inner.resource_span,
         })
     }
 }

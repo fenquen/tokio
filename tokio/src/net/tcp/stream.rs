@@ -1370,37 +1370,3 @@ mod sys {
         }
     }
 }
-
-cfg_windows! {
-    use crate::os::windows::io::{AsRawSocket, RawSocket, AsSocket, BorrowedSocket};
-
-    impl AsRawSocket for TcpStream {
-        fn as_raw_socket(&self) -> RawSocket {
-            self.io.as_raw_socket()
-        }
-    }
-
-    impl AsSocket for TcpStream {
-        fn as_socket(&self) -> BorrowedSocket<'_> {
-            unsafe { BorrowedSocket::borrow_raw(self.as_raw_socket()) }
-        }
-    }
-}
-
-#[cfg(all(tokio_unstable, target_os = "wasi"))]
-mod sys {
-    use super::TcpStream;
-    use std::os::wasi::prelude::*;
-
-    impl AsRawFd for TcpStream {
-        fn as_raw_fd(&self) -> RawFd {
-            self.io.as_raw_fd()
-        }
-    }
-
-    impl AsFd for TcpStream {
-        fn as_fd(&self) -> BorrowedFd<'_> {
-            unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
-        }
-    }
-}

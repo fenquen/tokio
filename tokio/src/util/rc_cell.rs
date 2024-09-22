@@ -16,14 +16,6 @@ impl<T> RcCell<T> {
         }
     }
 
-    // The UnsafeCell in loom does not have a const `new` fn.
-    #[cfg(all(loom, test))]
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: UnsafeCell::new(None),
-        }
-    }
-
     /// Safety: This method may not be called recursively.
     #[inline]
     unsafe fn with_inner<F, R>(&self, f: F) -> R

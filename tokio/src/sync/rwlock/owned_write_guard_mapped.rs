@@ -14,10 +14,6 @@ use std::{fmt, mem, ops, ptr};
 /// [`OwnedRwLockWriteGuard`]: struct@crate::sync::OwnedRwLockWriteGuard
 #[clippy::has_significant_drop]
 pub struct OwnedRwLockMappedWriteGuard<T: ?Sized, U: ?Sized = T> {
-    // When changing the fields in this struct, make sure to update the
-    // `skip_drop` method.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    pub(super) resource_span: tracing::Span,
     pub(super) permits_acquired: u32,
     pub(super) lock: Arc<RwLock<T>>,
     pub(super) data: *mut U,
@@ -26,8 +22,6 @@ pub struct OwnedRwLockMappedWriteGuard<T: ?Sized, U: ?Sized = T> {
 
 #[allow(dead_code)] // Unused fields are still used in Drop.
 struct Inner<T: ?Sized, U: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     permits_acquired: u32,
     lock: Arc<RwLock<T>>,
     data: *const U,
@@ -40,8 +34,6 @@ impl<T: ?Sized, U: ?Sized> OwnedRwLockMappedWriteGuard<T, U> {
         // forgets the originals, so in the end no value is duplicated.
         unsafe {
             Inner {
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                resource_span: ptr::read(&me.resource_span),
                 permits_acquired: me.permits_acquired,
                 lock: ptr::read(&me.lock),
                 data: me.data,
@@ -94,8 +86,6 @@ impl<T: ?Sized, U: ?Sized> OwnedRwLockMappedWriteGuard<T, U> {
             lock: this.lock,
             data,
             _p: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: this.resource_span,
         }
     }
 
@@ -150,9 +140,7 @@ impl<T: ?Sized, U: ?Sized> OwnedRwLockMappedWriteGuard<T, U> {
             permits_acquired: this.permits_acquired,
             lock: this.lock,
             data,
-            _p: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: this.resource_span,
+            _p: PhantomData
         })
     }
 
@@ -217,14 +205,5 @@ where
 impl<T: ?Sized, U: ?Sized> Drop for OwnedRwLockMappedWriteGuard<T, U> {
     fn drop(&mut self) {
         self.lock.s.release(self.permits_acquired as usize);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            write_locked = false,
-            write_locked.op = "override",
-            )
-        });
     }
 }

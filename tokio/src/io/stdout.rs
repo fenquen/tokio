@@ -141,22 +141,6 @@ mod sys {
     }
 }
 
-cfg_windows! {
-    use crate::os::windows::io::{AsHandle, BorrowedHandle, AsRawHandle, RawHandle};
-
-    impl AsRawHandle for Stdout {
-        fn as_raw_handle(&self) -> RawHandle {
-            std::io::stdout().as_raw_handle()
-        }
-    }
-
-    impl AsHandle for Stdout {
-        fn as_handle(&self) -> BorrowedHandle<'_> {
-            unsafe { BorrowedHandle::borrow_raw(self.as_raw_handle()) }
-        }
-    }
-}
-
 impl AsyncWrite for Stdout {
     fn poll_write(
         mut self: Pin<&mut Self>,

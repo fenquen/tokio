@@ -29,7 +29,7 @@ pub(crate) struct DriverHandle {
     pub(crate) signalDriverHandle: Option<crate::runtime::signal::SignalDriverHandle>,
 
     /// Time driver handle
-    pub(crate) timeDriverHandle: Option<crate::runtime::time::TimeDriverHandle>,
+    pub(crate) timeDriverHandle: Option<TimeDriverHandle>,
 
     /// Source of `Instant::now()`
     #[cfg_attr(not(all(feature = "time", feature = "test-util")), allow(dead_code))]

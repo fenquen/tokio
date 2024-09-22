@@ -27,10 +27,7 @@ impl RngSeedGenerator {
 
     /// Returns the next seed in the sequence.
     pub(crate) fn next_seed(&self) -> RngSeed {
-        let mut rng = self
-            .state
-            .lock()
-            .expect("RNG seed generator is internally corrupt");
+        let mut rng = self.state.lock().expect("RNG seed generator is internally corrupt");
 
         let s = rng.fastrand();
         let r = rng.fastrand();

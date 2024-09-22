@@ -126,8 +126,6 @@
 use crate::loom::cell::UnsafeCell;
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::loom::sync::Arc;
-#[cfg(all(tokio_unstable, feature = "tracing"))]
-use crate::util::trace;
 
 use std::fmt;
 use std::future::Future;
@@ -546,15 +544,6 @@ impl<T> Sender<T> {
             }
         }
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            value_sent = true,
-            value_sent.op = "override",
-            )
-        });
-
         Ok(())
     }
 
@@ -912,14 +901,6 @@ impl<T> Receiver<T> {
                 // cell.
                 match unsafe { inner.consume_value() } {
                     Some(value) => {
-                        #[cfg(all(tokio_unstable, feature = "tracing"))]
-                        self.resource_span.in_scope(|| {
-                            tracing::trace!(
-                            target: "runtime::resource::state_update",
-                            value_received = true,
-                            value_received.op = "override",
-                            )
-                        });
                         Ok(value)
                     }
                     None => Err(TryRecvError::Closed),
@@ -981,15 +962,6 @@ impl<T> Drop for Receiver<T> {
                 // so only the receiver can access the value.
                 drop(unsafe { inner.consume_value() });
             }
-
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            self.resource_span.in_scope(|| {
-                tracing::trace!(
-                target: "runtime::resource::state_update",
-                rx_dropped = true,
-                rx_dropped.op = "override",
-                )
-            });
         }
     }
 }
@@ -999,17 +971,8 @@ impl<T> Future for Receiver<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // If `inner` is `None`, then `poll()` has already completed.
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let _res_span = self.resource_span.clone().entered();
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let _ao_span = self.async_op_span.clone().entered();
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let _ao_poll_span = self.async_op_poll_span.clone().entered();
 
         let ret = if let Some(inner) = self.as_ref().get_ref().inner.as_ref() {
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            let res = ready!(trace_poll_op!("poll_recv", inner.poll_recv(cx)))?;
-
             #[cfg(any(not(tokio_unstable), not(feature = "tracing")))]
             let res = ready!(inner.poll_recv(cx))?;
 

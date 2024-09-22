@@ -349,34 +349,15 @@ cfg_rt! {
     #[cfg_attr(target_os = "wasi", allow(unused_imports))]
     pub(crate) use blocking::spawn_blocking;
 
-    cfg_trace! {
-        pub(crate) use blocking::Mandatory;
-    }
-
     cfg_fs! {
         pub(crate) use blocking::spawn_mandatory_blocking;
     }
 
     mod builder;
     pub use self::builder::Builder;
-    cfg_unstable! {
-        mod id;
-        #[cfg_attr(not(tokio_unstable), allow(unreachable_pub))]
-        pub use id::Id;
-
-        pub use self::builder::UnhandledPanic;
-        pub use crate::util::rand::RngSeed;
-    }
-
-    cfg_taskdump! {
-        pub mod dump;
-        pub use dump::Dump;
-    }
 
     mod task_hooks;
     pub(crate) use task_hooks::{TaskHooks, TaskCallback};
-    #[cfg(tokio_unstable)]
-    pub use task_hooks::TaskMeta;
     #[cfg(not(tokio_unstable))]
     pub(crate) use task_hooks::TaskMeta;
 

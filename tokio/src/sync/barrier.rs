@@ -1,7 +1,5 @@
 use crate::loom::sync::Mutex;
 use crate::sync::watch;
-#[cfg(all(tokio_unstable, feature = "tracing"))]
-use crate::util::trace;
 
 /// A barrier enables multiple tasks to synchronize the beginning of some computation.
 ///
@@ -43,8 +41,6 @@ pub struct Barrier {
     state: Mutex<BarrierState>,
     wait: watch::Receiver<usize>,
     n: usize,
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
 }
 
 #[derive(Debug)]
@@ -70,33 +66,6 @@ impl Barrier {
             n = 1;
         }
 
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        let resource_span = {
-            let location = std::panic::Location::caller();
-            let resource_span = tracing::trace_span!(
-                parent: None,
-                "runtime.resource",
-                concrete_type = "Barrier",
-                kind = "Sync",
-                loc.file = location.file(),
-                loc.line = location.line(),
-                loc.col = location.column(),
-            );
-
-            resource_span.in_scope(|| {
-                tracing::trace!(
-                    target: "runtime::resource::state_update",
-                    size = n,
-                );
-
-                tracing::trace!(
-                    target: "runtime::resource::state_update",
-                    arrived = 0,
-                )
-            });
-            resource_span
-        };
-
         Barrier {
             state: Mutex::new(BarrierState {
                 waker,
@@ -105,8 +74,6 @@ impl Barrier {
             }),
             n,
             wait,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span,
         }
     }
 
@@ -123,19 +90,10 @@ impl Barrier {
     ///
     /// This method is not cancel safe.
     pub async fn wait(&self) -> BarrierWaitResult {
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        return trace::async_op(
-            || self.wait_internal(),
-            self.resource_span.clone(),
-            "Barrier::wait",
-            "poll",
-            false,
-        )
-        .await;
-
         #[cfg(any(not(tokio_unstable), not(feature = "tracing")))]
         return self.wait_internal().await;
     }
+
     async fn wait_internal(&self) -> BarrierWaitResult {
         crate::trace::async_trace_leaf().await;
 
@@ -150,29 +108,11 @@ impl Barrier {
             let mut state = self.state.lock();
             let generation = state.generation;
             state.arrived += 1;
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            tracing::trace!(
-                target: "runtime::resource::state_update",
-                arrived = 1,
-                arrived.op = "add",
-            );
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            tracing::trace!(
-                target: "runtime::resource::async_op::state_update",
-                arrived = true,
-            );
+
             if state.arrived == self.n {
-                #[cfg(all(tokio_unstable, feature = "tracing"))]
-                tracing::trace!(
-                    target: "runtime::resource::async_op::state_update",
-                    is_leader = true,
-                );
                 // we are the leader for this generation
                 // wake everyone, increment the generation, and return
-                state
-                    .waker
-                    .send(state.generation)
-                    .expect("there is at least one receiver");
+                state.waker.send(state.generation).expect("there is at least one receiver");
                 state.arrived = 0;
                 state.generation += 1;
                 return BarrierWaitResult(true);

@@ -1,8 +1,6 @@
 #![cfg_attr(loom, allow(unused_imports))]
 
 use crate::runtime::handle::RuntimeHandle;
-#[cfg(tokio_unstable)]
-use crate::runtime::TaskMeta;
 use crate::runtime::{blocking, driver, Callback, Runtime, TaskCallback};
 use crate::util::rand::{RngSeed, RngSeedGenerator};
 
@@ -193,9 +191,6 @@ impl Builder {
             local_queue_capacity: 4,
 
             seed_generator: RngSeedGenerator::new(RngSeed::new()),
-
-            #[cfg(tokio_unstable)]
-            unhandled_panic: UnhandledPanic::Ignore,
 
             metrics_poll_count_histogram_enable: false,
 
@@ -539,8 +534,6 @@ impl Builder {
                 global_queue_interval: self.global_queue_interval,
                 event_interval: self.event_interval,
                 local_queue_capacity: self.local_queue_capacity,
-                #[cfg(tokio_unstable)]
-                unhandled_panic: self.unhandled_panic.clone(),
                 disable_lifo_slot: self.disable_lifo_slot,
                 seed_generator: seed_generator_1,
             },

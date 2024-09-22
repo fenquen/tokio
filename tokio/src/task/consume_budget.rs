@@ -23,7 +23,6 @@ use std::task::{ready, Poll};
 ///     sum
 /// }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
 pub async fn consume_budget() {
     let mut status = Poll::Pending;
 
@@ -36,6 +35,5 @@ pub async fn consume_budget() {
             restore.made_progress();
         });
         status
-    })
-    .await
+    }).await
 }

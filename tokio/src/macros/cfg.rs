@@ -13,18 +13,6 @@ macro_rules! feature {
     }
 }
 
-/// Enables Windows-specific code.
-/// Use this macro instead of `cfg(windows)` to generate docs properly.
-macro_rules! cfg_windows {
-    ($($item:item)*) => {
-        $(
-            #[cfg(any(all(doc, docsrs), windows))]
-            #[cfg_attr(docsrs, doc(cfg(windows)))]
-            $item
-        )*
-    }
-}
-
 /// Enables Unix-specific code.
 /// Use this macro instead of `cfg(unix)` to generate docs properly.
 macro_rules! cfg_unix {
@@ -32,18 +20,6 @@ macro_rules! cfg_unix {
         $(
             #[cfg(any(all(doc, docsrs), unix))]
             #[cfg_attr(docsrs, doc(cfg(unix)))]
-            $item
-        )*
-    }
-}
-
-/// Enables unstable Windows-specific code.
-/// Use this macro instead of `cfg(windows)` to generate docs properly.
-macro_rules! cfg_unstable_windows {
-    ($($item:item)*) => {
-        $(
-            #[cfg(all(any(all(doc, docsrs), windows), tokio_unstable))]
-            #[cfg_attr(docsrs, doc(cfg(all(windows, tokio_unstable))))]
             $item
         )*
     }
@@ -215,16 +191,6 @@ macro_rules! cfg_macros {
     }
 }
 
-macro_rules! cfg_unstable_metrics {
-    ($($item:item)*) => {
-        $(
-            #[cfg(tokio_unstable)]
-            #[cfg_attr(docsrs, doc(cfg(tokio_unstable)))]
-            $item
-        )*
-    }
-}
-
 /// Some metrics require 64-bit atomics.
 macro_rules! cfg_64bit_metrics {
     ($($item:item)*) => {
@@ -285,16 +251,6 @@ macro_rules! cfg_net_unix {
         $(
             #[cfg(all(unix, feature = "net"))]
             #[cfg_attr(docsrs, doc(cfg(all(unix, feature = "net"))))]
-            $item
-        )*
-    }
-}
-
-macro_rules! cfg_net_windows {
-    ($($item:item)*) => {
-        $(
-            #[cfg(all(any(all(doc, docsrs), windows), feature = "net"))]
-            #[cfg_attr(docsrs, doc(cfg(all(windows, feature = "net"))))]
             $item
         )*
     }
@@ -415,25 +371,6 @@ macro_rules! cfg_not_rt_multi_thread {
     }
 }
 
-macro_rules! cfg_taskdump {
-    ($($item:item)*) => {
-        $(
-            #[cfg(all(
-                tokio_unstable,
-                tokio_taskdump,
-                feature = "rt",
-                target_os = "linux",
-                any(
-                    target_arch = "aarch64",
-                    target_arch = "x86",
-                    target_arch = "x86_64"
-                )
-            ))]
-            $item
-        )*
-    };
-}
-
 macro_rules! cfg_not_taskdump {
     ($($item:item)*) => {
         $(
@@ -451,16 +388,6 @@ macro_rules! cfg_not_taskdump {
             $item
         )*
     };
-}
-
-macro_rules! cfg_test_util {
-    ($($item:item)*) => {
-        $(
-            #[cfg(feature = "test-util")]
-            #[cfg_attr(docsrs, doc(cfg(feature = "test-util")))]
-            $item
-        )*
-    }
 }
 
 macro_rules! cfg_not_test_util {
@@ -483,26 +410,6 @@ macro_rules! cfg_not_time {
     ($($item:item)*) => {
         $( #[cfg(not(feature = "time"))] $item )*
     }
-}
-
-macro_rules! cfg_trace {
-    ($($item:item)*) => {
-        $(
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            #[cfg_attr(docsrs, doc(cfg(all(tokio_unstable, feature = "tracing"))))]
-            $item
-        )*
-    };
-}
-
-macro_rules! cfg_unstable {
-    ($($item:item)*) => {
-        $(
-            #[cfg(tokio_unstable)]
-            #[cfg_attr(docsrs, doc(cfg(tokio_unstable)))]
-            $item
-        )*
-    };
 }
 
 macro_rules! cfg_not_trace {

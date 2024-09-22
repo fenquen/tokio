@@ -142,10 +142,7 @@ where
 /// }
 /// # }
 /// ```
-pub fn timeout_at<F>(deadline: Instant, future: F) -> Timeout<F::IntoFuture>
-where
-    F: IntoFuture,
-{
+pub fn timeout_at<F: IntoFuture>(deadline: Instant, future: F) -> Timeout<F::IntoFuture> {
     let delay = sleep_until(deadline);
 
     Timeout {
@@ -187,10 +184,7 @@ impl<T> Timeout<T> {
     }
 }
 
-impl<T> Future for Timeout<T>
-where
-    T: Future,
-{
+impl< T: Future> Future for Timeout<T> {
     type Output = Result<T::Output, Elapsed>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {

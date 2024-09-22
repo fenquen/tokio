@@ -307,11 +307,9 @@ impl Core {
 // ===== impl Context =====
 
 impl Context {
-    /// Execute the closure with the given scheduler core stored in the
-    /// thread-local context.
+    /// Execute the closure with the given scheduler core stored in the thread-local context.
     fn run_task<R>(&self, core: Box<Core>, f: impl FnOnce() -> R) -> (Box<Core>, R) {
-        let mut ret = self.enter(core, || crate::runtime::coop::budget(f));
-        ret
+       self.enter(core, || crate::runtime::coop::budget(f))
     }
 
     /// Blocks the current thread until an event is received by the driver,
@@ -448,7 +446,6 @@ impl Schedule for Arc<CurrentThreadSchedulerHandle> {
                 }
             }
             _ => {
-
                 // Schedule the task
                 self.shared.inject.push(task);
                 self.driverHandle.unpark();

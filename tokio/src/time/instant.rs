@@ -212,12 +212,3 @@ mod variant {
         Instant::from_std(std::time::Instant::now())
     }
 }
-
-#[cfg(feature = "test-util")]
-mod variant {
-    use super::Instant;
-
-    pub(super) fn now() -> Instant {
-        crate::time::clock::now()
-    }
-}

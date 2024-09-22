@@ -13,10 +13,6 @@ use std::{fmt, mem, ops};
 /// [`RwLockWriteGuard`]: struct@crate::sync::RwLockWriteGuard
 #[clippy::has_significant_drop]
 pub struct RwLockMappedWriteGuard<'a, T: ?Sized> {
-    // When changing the fields in this struct, make sure to update the
-    // `skip_drop` method.
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    pub(super) resource_span: tracing::Span,
     pub(super) permits_acquired: u32,
     pub(super) s: &'a Semaphore,
     pub(super) data: *mut T,
@@ -25,8 +21,6 @@ pub struct RwLockMappedWriteGuard<'a, T: ?Sized> {
 
 #[allow(dead_code)] // Unused fields are still used in Drop.
 struct Inner<'a, T: ?Sized> {
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    resource_span: tracing::Span,
     permits_acquired: u32,
     s: &'a Semaphore,
     data: *mut T,
@@ -38,8 +32,6 @@ impl<'a, T: ?Sized> RwLockMappedWriteGuard<'a, T> {
         // SAFETY: This duplicates the values in every field of the guard, then
         // forgets the originals, so in the end no value is duplicated.
         Inner {
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: unsafe { std::ptr::read(&me.resource_span) },
             permits_acquired: me.permits_acquired,
             s: me.s,
             data: me.data,
@@ -94,8 +86,6 @@ impl<'a, T: ?Sized> RwLockMappedWriteGuard<'a, T> {
             s: this.s,
             data,
             marker: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: this.resource_span,
         }
     }
 
@@ -156,8 +146,6 @@ impl<'a, T: ?Sized> RwLockMappedWriteGuard<'a, T> {
             s: this.s,
             data,
             marker: PhantomData,
-            #[cfg(all(tokio_unstable, feature = "tracing"))]
-            resource_span: this.resource_span,
         })
     }
 
@@ -200,14 +188,5 @@ where
 impl<'a, T: ?Sized> Drop for RwLockMappedWriteGuard<'a, T> {
     fn drop(&mut self) {
         self.s.release(self.permits_acquired as usize);
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        self.resource_span.in_scope(|| {
-            tracing::trace!(
-            target: "runtime::resource::state_update",
-            write_locked = false,
-            write_locked.op = "override",
-            )
-        });
     }
 }

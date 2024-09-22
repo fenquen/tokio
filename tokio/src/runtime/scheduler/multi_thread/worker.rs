@@ -304,10 +304,7 @@ pub(super) fn create(workerCount: usize,
 }
 
 #[track_caller]
-pub(crate) fn block_in_place<F, R>(f: F) -> R
-where
-    F: FnOnce() -> R,
-{
+pub(crate) fn block_in_place<F: FnOnce() -> R, R>(f: F) -> R {
     // Try to steal the worker core back
     struct Reset {
         take_core: bool,
@@ -971,7 +968,7 @@ impl MultiThreadSchedulerHandle {
                 }
             }
 
-            // Otherwise, use the inject queue.
+            // otherwise, use the inject queue.
             self.push_remote_task(task);
             self.notify_parked_remote();
         });

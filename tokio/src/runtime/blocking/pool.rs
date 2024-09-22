@@ -200,12 +200,6 @@ impl SpawnerMetrics {
         self.num_idle_threads.load(Ordering::Relaxed)
     }
 
-    cfg_unstable_metrics! {
-        fn queue_depth(&self) -> usize {
-            self.queue_depth.load(Ordering::Relaxed)
-        }
-    }
-
     fn inc_num_threads(&self) {
         self.num_threads.increment();
     }
