@@ -159,7 +159,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
                 // before after `yield_now` returns.
                 self.drop_reference();
             }
-            PollFuture::Complete => self.complete(),
+            PollFuture::Complete => self.complete(), // Poll::Ready 对应
             PollFuture::Dealloc => self.dealloc(),
             PollFuture::Done => (),
         }
@@ -461,10 +461,7 @@ fn cancel_task<T: Future, S: Schedule>(core: &Core<T, S>) {
     core.store_output(Err(panic_result_to_join_error(core.taskId, res)));
 }
 
-fn panic_result_to_join_error(
-    task_id: Id,
-    res: Result<(), Box<dyn Any + Send + 'static>>,
-) -> JoinError {
+fn panic_result_to_join_error(task_id: Id, res: Result<(), Box<dyn Any + Send + 'static>>) -> JoinError {
     match res {
         Ok(()) => JoinError::cancelled(task_id),
         Err(panic) => JoinError::panic(task_id, panic),
@@ -473,7 +470,6 @@ fn panic_result_to_join_error(
 
 /// Polls the future. If the future completes, the output is written to the stage field.
 fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Poll<()> {
-    // Poll the future.
     let output = panic::catch_unwind(panic::AssertUnwindSafe(|| {
         struct Guard<'a, T: Future, S: Schedule> {
             core: &'a Core<T, S>,
@@ -490,6 +486,7 @@ fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Po
 
         let res = guard.core.poll(cx);
 
+        // 到了这边说明上边的guard.core.poll(cx)成功调用了 自然是用不到为了应对panic的drop了
         mem::forget(guard);
 
         res
@@ -515,11 +512,8 @@ fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Po
 }
 
 #[cold]
-fn panic_to_error<S: Schedule>(
-    scheduler: &S,
-    task_id: Id,
-    panic: Box<dyn Any + Send + 'static>,
-) -> JoinError {
+fn panic_to_error<S: Schedule>(scheduler: &S, task_id: Id,
+                               panic: Box<dyn Any + Send + 'static>) -> JoinError {
     scheduler.unhandled_panic();
     JoinError::panic(task_id, panic)
 }

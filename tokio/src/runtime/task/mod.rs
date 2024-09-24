@@ -271,8 +271,7 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
 
     fn hooks(&self) -> TaskHarnessScheduleHooks;
 
-    /// Schedule the task to run in the near future, yielding the thread to
-    /// other tasks.
+    /// Schedule the task to run in the near future, yielding the thread to other tasks.
     fn yield_now(&self, task: Notified<Self>) {
         self.schedule(task);
     }
@@ -382,7 +381,6 @@ impl<S: Schedule> Task<S> {
 }
 
 impl<S: Schedule> LocalNotified<S> {
-    /// Runs the task.
     pub(crate) fn run(self) {
         let rawTask = self.task.rawTask;
         mem::forget(self);

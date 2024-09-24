@@ -36,15 +36,16 @@ pub(crate) struct Steal<T: 'static>(Arc<Inner<T>>);
 pub(crate) struct Inner<T: 'static> {
     /// Concurrently updated by many threads.
     ///
-    /// Contains two `UnsignedShort` values. The `LSB` byte is the "real" head of
-    /// the queue. The `UnsignedShort` in the `MSB` is set by a stealer in process
-    /// of stealing values. It represents the first value being stolen in the
-    /// batch. The `UnsignedShort` indices are intentionally wider than strictly
+    /// Contains two `UnsignedShort` values.
+    /// 低位的是 the "real" head of the queue.
+    /// 高位 is set by a stealer in process of stealing values.
+    ///
+    /// It represents the first value being stolen in the batch.
+    /// The `UnsignedShort` indices are intentionally wider than strictly
     /// required for buffer indexing in order to provide ABA mitigation and make
     /// it possible to distinguish between full and empty buffers.
     ///
-    /// When both `UnsignedShort` values are the same, there is no active
-    /// stealer.
+    /// When both `UnsignedShort` values are the same, there is no active stealer.
     ///
     /// Tracking an in-progress stealer prevents a wrapping scenario.
     head: AtomicUnsignedLong,
@@ -276,20 +277,11 @@ impl<T> Local<T> {
         // work. This is because all tasks are pushed into the queue from the
         // current thread (or memory has been acquired if the local queue handle
         // moved).
-        if self
-            .inner
-            .head
-            .compare_exchange(
-                prev,
-                pack(
-                    head.wrapping_add(NUM_TASKS_TAKEN),
-                    head.wrapping_add(NUM_TASKS_TAKEN),
-                ),
-                Release,
-                Relaxed,
-            )
-            .is_err()
-        {
+        if self.inner.head.compare_exchange(
+            prev,
+            pack(head.wrapping_add(NUM_TASKS_TAKEN), head.wrapping_add(NUM_TASKS_TAKEN)),
+            Release,
+            Relaxed).is_err() {
             // We failed to claim the tasks, losing the race. Return out of
             // this function and try the full `push` routine again. The queue
             // may not be full anymore.
@@ -302,6 +294,7 @@ impl<T> Local<T> {
             head: UnsignedLong,
             i: UnsignedLong,
         }
+
         impl<'a, T: 'static> Iterator for BatchTaskIter<'a, T> {
             type Item = task::Notified<T>;
 
@@ -362,10 +355,7 @@ impl<T> Local<T> {
             };
 
             // Attempt to claim a task.
-            let res = self
-                .inner
-                .head
-                .compare_exchange(head, next, AcqRel, Acquire);
+            let res = self.inner.head.compare_exchange(head, next, AcqRel, Acquire);
 
             match res {
                 Ok(_) => break real as usize & MASK,
@@ -383,50 +373,45 @@ impl<T> Steal<T> {
     }
 
     /// Steals half the tasks from self and place them into `dst`.
-    pub(crate) fn steal_into(&self,
-                             dst: &mut Local<T>,
-                             dst_stats: &mut Stats) -> Option<task::Notified<T>> {
-        // Safety: the caller is the only thread that mutates `dst.tail` and
-        // holds a mutable reference.
-        let dst_tail = unsafe { dst.inner.tail.unsync_load() };
+    pub(crate) fn steal_into(&self, dest: &mut Local<T>) -> Option<task::Notified<T>> {
+        // Safety: the caller is the only thread that mutates `dst.tail` and holds a mutable reference.
+        let destTail = unsafe { dest.inner.tail.unsync_load() };
 
         // To the caller, `dst` may **look** empty but still have values
         // contained in the buffer. If another thread is concurrently stealing
         // from `dst` there may not be enough capacity to steal.
-        let (steal, _) = unpack(dst.inner.head.load(Acquire));
+        let (steal, _) = unpack(dest.inner.head.load(Acquire));
 
-        if dst_tail.wrapping_sub(steal) > LOCAL_QUEUE_CAPACITY as UnsignedShort / 2 {
-            // we *could* try to steal less here, but for simplicity, we're just
-            // going to abort.
+        // we *could* try to steal less here, but for simplicity, we're just going to abort.
+        if destTail.wrapping_sub(steal) > (LOCAL_QUEUE_CAPACITY as UnsignedShort / 2) {
             return None;
         }
 
         // Steal the tasks into `dst`'s buffer. This does not yet expose the tasks in `dst`.
-        let mut n = self.steal_into2(dst, dst_tail);
+        let mut stolenCount = self.steal_into2(dest, destTail);
 
         // No tasks were stolen
-        if n == 0 {
+        if stolenCount == 0 {
             return None;
         }
 
-
         // We are returning a task here
-        n -= 1;
+        stolenCount -= 1;
 
-        let ret_pos = dst_tail.wrapping_add(n);
+        let ret_pos = destTail.wrapping_add(stolenCount);
         let ret_idx = ret_pos as usize & MASK;
 
         // safety: the value was written as part of `steal_into2` and not
         // exposed to stealers, so no other thread can access it.
-        let ret = dst.inner.buffer[ret_idx].with(|ptr| unsafe { ptr::read((*ptr).as_ptr()) });
+        let ret = dest.inner.buffer[ret_idx].with(|ptr| unsafe { ptr::read((*ptr).as_ptr()) });
 
         // The `dst` queue is empty, but a single task was stolen
-        if n == 0 {
+        if stolenCount == 0 {
             return Some(ret);
         }
 
         // Make the stolen items available to consumers
-        dst.inner.tail.store(dst_tail.wrapping_add(n), Release);
+        dest.inner.tail.store(destTail.wrapping_add(stolenCount), Release);
 
         Some(ret)
     }
@@ -436,67 +421,61 @@ impl<T> Steal<T> {
         let mut prev_packed = self.0.head.load(Acquire);
         let mut next_packed;
 
-        let n = loop {
-            let (src_head_steal, src_head_real) = unpack(prev_packed);
-            let src_tail = self.0.tail.load(Acquire);
+        let stolenCount = loop {
+            // steal要下手起始的index, 队列实际的起始index
+            let (srcHeadStealFrom, srcHeadReal) = unpack(prev_packed);
 
-            // If these two do not match, another thread is concurrently
-            // stealing from the queue.
-            if src_head_steal != src_head_real {
+            // 队列的实际的末尾的index
+            let srcTail = self.0.tail.load(Acquire);
+
+            // If these two do not match, another thread is concurrently stealing from the queue.
+            if srcHeadStealFrom != srcHeadReal {
                 return 0;
             }
 
             // Number of available tasks to steal
-            let n = src_tail.wrapping_sub(src_head_real);
-            let n = n - n / 2;
+            let stolenCount = srcTail.wrapping_sub(srcHeadReal);
+            let stolenCount = stolenCount - stolenCount / 2;
 
-            if n == 0 {
-                // No tasks available to steal
+            // no tasks available to steal
+            if stolenCount == 0 {
                 return 0;
             }
 
             // Update the real head index to acquire the tasks.
-            let steal_to = src_head_real.wrapping_add(n);
-            assert_ne!(src_head_steal, steal_to);
-            next_packed = pack(src_head_steal, steal_to);
+            let steal_to = srcHeadReal.wrapping_add(stolenCount);
+            assert_ne!(srcHeadStealFrom, steal_to);
+            next_packed = pack(srcHeadStealFrom, steal_to);
 
-            // Claim all those tasks. This is done by incrementing the "real"
-            // head but not the steal. By doing this, no other thread is able to
-            // steal from this queue until the current thread completes.
-            let res = self
-                .0
-                .head
-                .compare_exchange(prev_packed, next_packed, AcqRel, Acquire);
-
-            match res {
-                Ok(_) => break n,
+            // Claim all those tasks. This is done by incrementing the "real" head but not the steal.
+            // By doing this, no other thread is able to steal from this queue until the current thread completes.
+            match self.0.head.compare_exchange(prev_packed, next_packed, AcqRel, Acquire) {
+                Ok(_) => break stolenCount,
                 Err(actual) => prev_packed = actual,
             }
         };
 
-        assert!(n <= LOCAL_QUEUE_CAPACITY as UnsignedShort / 2, "actual = {}", n);
+        assert!(stolenCount <= LOCAL_QUEUE_CAPACITY as UnsignedShort / 2, "actual = {}", stolenCount);
 
-        let (first, _) = unpack(next_packed);
+        let (srcHeadStealFrom, _) = unpack(next_packed);
 
-        // Take all the tasks
-        for i in 0..n {
-            // Compute the positions
-            let src_pos = first.wrapping_add(i);
+        // Take all the stolen tasks
+        for i in 0..stolenCount {
+            // compute the positions
+            // pos是单调递增的 通过后边的mod来得到index
+            let src_pos = srcHeadStealFrom.wrapping_add(i);
             let dst_pos = dst_tail.wrapping_add(i);
 
-            // Map to slots
+            // map to slots
             let src_idx = src_pos as usize & MASK;
             let dst_idx = dst_pos as usize & MASK;
 
-            // Read the task
-            //
+            // read the task
             // safety: We acquired the task with the atomic exchange above.
             let task = self.0.buffer[src_idx].with(|ptr| unsafe { ptr::read((*ptr).as_ptr()) });
 
             // Write the task to the new slot
-            //
-            // safety: `dst` queue is empty and we are the only producer to
-            // this queue.
+            // safety: `dst` queue is empty and we are the only producer to this queue.
             dst.inner.buffer[dst_idx].with_mut(|ptr| unsafe { ptr::write((*ptr).as_mut_ptr(), task) });
         }
 
@@ -504,21 +483,14 @@ impl<T> Steal<T> {
 
         // Update `src_head_steal` to match `src_head_real` signalling that the stealing routine is complete.
         loop {
-            let head = unpack(prev_packed).1;
-            next_packed = pack(head, head);
+            let srcHeadReal = unpack(prev_packed).1;
+            next_packed = pack(srcHeadReal, srcHeadReal);
 
-            let res = self
-                .0
-                .head
-                .compare_exchange(prev_packed, next_packed, AcqRel, Acquire);
-
-            match res {
-                Ok(_) => return n,
+            match self.0.head.compare_exchange(prev_packed, next_packed, AcqRel, Acquire) {
+                Ok(_) => return stolenCount,
                 Err(actual) => {
-                    let (actual_steal, actual_real) = unpack(actual);
-
-                    assert_ne!(actual_steal, actual_real);
-
+                    let (steal, real) = unpack(actual);
+                    assert_ne!(steal, real);
                     prev_packed = actual;
                 }
             }
@@ -563,7 +535,7 @@ impl<T> Inner<T> {
 /// Split the head value into the real head and the index a stealer is working on.
 fn unpack(n: UnsignedLong) -> (UnsignedShort, UnsignedShort) {
     let real = n & UnsignedShort::MAX as UnsignedLong;
-    let steal = n >> (mem::size_of::<UnsignedShort>() * 8);
+    let steal = n >> (size_of::<UnsignedShort>() * 8); // 因为1个byte有8个bit
 
     (steal as UnsignedShort, real as UnsignedShort)
 }

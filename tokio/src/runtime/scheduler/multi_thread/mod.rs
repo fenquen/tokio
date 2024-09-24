@@ -23,11 +23,6 @@ pub(crate) mod queue;
 mod worker;
 pub(crate) use worker::{MultiThreadThreadLocalContext, Launcher, WorkerSharedState};
 
-cfg_not_taskdump! {
-    mod trace_mock;
-    use trace_mock::TraceStatus;
-}
-
 pub(crate) use worker::block_in_place;
 
 use crate::loom::sync::Arc;
@@ -68,10 +63,7 @@ impl MultiThread {
     ///
     /// The future will execute on the current thread, but all spawned tasks
     /// will be executed on the thread pool.
-    pub(crate) fn block_on<F>(&self, handle: &scheduler::SchedulerHandleEnum, future: F) -> F::Output
-    where
-        F: Future,
-    {
+    pub(crate) fn block_on<F: Future>(&self, handle: &scheduler::SchedulerHandleEnum, future: F) -> F::Output {
         crate::runtime::context::enter_runtime(handle, true, |blocking| {
             blocking.block_on(future).expect("failed to park thread")
         })

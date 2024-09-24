@@ -59,7 +59,7 @@
 use crate::loom::sync::{Arc, Mutex};
 use crate::runtime;
 use crate::runtime::scheduler::multi_thread::{
-    idle, queue, Counters, Idle, MultiThreadSchedulerHandle, Overflow, Parker, Stats, TraceStatus, UnParker,
+    idle, queue, Counters, Idle, MultiThreadSchedulerHandle, Overflow, Parker, Stats, UnParker,
 };
 use crate::runtime::scheduler::{inject, Defer, Lock};
 use crate::runtime::task::{OwnedTasks, TaskHarnessScheduleHooks};
@@ -95,14 +95,14 @@ struct Core {
     /// This effectively results in the **last** scheduled task to be run
     /// next (LIFO). This is an optimization for improving locality which
     /// benefits message passing patterns and helps to reduce latency.
-    lifo_slot: Option<Notified>,
+    lifoSlot: Option<Notified>,
 
     /// When `true`, locally scheduled tasks go to the LIFO slot. When `false`,
     /// they go to the back of the `run_queue`.
-    lifo_enabled: bool,
+    lifoEnabled: bool,
 
     /// The worker-local run queue.
-    run_queue: queue::Local<Arc<MultiThreadSchedulerHandle>>,
+    runQueue: queue::Local<Arc<MultiThreadSchedulerHandle>>,
 
     /// True if the worker is currently searching for more work. Searching
     /// involves attempting to steal from other workers.
@@ -110,9 +110,6 @@ struct Core {
 
     /// True if the scheduler is being shutdown
     is_shutdown: bool,
-
-    /// True if the scheduler is being traced
-    is_traced: bool,
 
     /// Parker
     ///
@@ -132,8 +129,7 @@ struct Core {
 
 /// State shared across all workers
 pub(crate) struct WorkerSharedState {
-    /// Per-worker remote state. All other workers have access to this and is
-    /// how they communicate between each other.
+    /// Per-worker remote state. All other workers have access to this and is how they communicate between each other.
     remotes: Box<[Remote]>,
 
     /// Global task queue used for:
@@ -157,17 +153,8 @@ pub(crate) struct WorkerSharedState {
     #[allow(clippy::vec_box)] // we're moving an already-boxed value
     shutdown_cores: Mutex<Vec<Box<Core>>>,
 
-    /// The number of cores that have observed the trace signal.
-    pub(super) trace_status: TraceStatus,
-
     /// Scheduler configuration options
     config: Config,
-
-    /// Only held to trigger some code on drop. This is used to get internal
-    /// runtime metrics that can be useful when doing performance
-    /// investigations. This does nothing (empty struct, no drop impl) unless
-    /// the `tokio_internal_mt_counters` `cfg` flag is set.
-    _counters: Counters,
 }
 
 /// Data synchronized by the scheduler mutex
@@ -190,14 +177,11 @@ struct Remote {
 
 /// Thread-local context
 pub(crate) struct MultiThreadThreadLocalContext {
-    /// Worker
     worker: Arc<Worker>,
 
-    /// Core data
     core: RefCell<Option<Box<Core>>>,
 
-    /// Tasks to wake after resource drivers are polled. This is mostly to
-    /// handle yielded tasks.
+    /// Tasks to wake after resource drivers are polled. This is mostly to handle yielded tasks.
     pub(crate) defer: Defer,
 }
 
@@ -245,12 +229,11 @@ pub(super) fn create(workerCount: usize,
 
         cores.push(Box::new(Core {
             tick: 0,
-            lifo_slot: None,
-            lifo_enabled: !config.disable_lifo_slot,
-            run_queue,
+            lifoSlot: None,
+            lifoEnabled: !config.disable_lifo_slot,
+            runQueue: run_queue,
             is_searching: false,
             is_shutdown: false,
-            is_traced: false,
             park: Some(parker),
             checkGlobalQueueInterval: stats.tuned_global_queue_interval(&config),
             stats,
@@ -280,9 +263,7 @@ pub(super) fn create(workerCount: usize,
                 injectSyncState: inject_synced,
             }),
             shutdown_cores: Mutex::new(vec![]),
-            trace_status: TraceStatus::new(remotes_len),
             config,
-            _counters: Counters,
         },
         driverHandle,
         blockingSpawner: blocking_spawner,
@@ -323,8 +304,7 @@ pub(crate) fn block_in_place<F: FnOnce() -> R, R>(f: F) -> R {
                         *cx_core = core;
                     }
 
-                    // Reset the task budget as we are re-entering the
-                    // runtime.
+                    // Reset the task budget as we are re-entering the runtime.
                     coop::set(self.budget);
                 }
             });
@@ -375,8 +355,8 @@ pub(crate) fn block_in_place<F: FnOnce() -> R, R>(f: F) -> R {
         // If we heavily call `spawn_blocking`, there might be no available thread to
         // run this core. Except for the task in the lifo_slot, all tasks can be
         // stolen, so we move the task out of the lifo_slot to the run_queue.
-        if let Some(task) = core.lifo_slot.take() {
-            core.run_queue.push_back_or_overflow(task, &*cx.worker.multiThreadSchedulerHandle);
+        if let Some(task) = core.lifoSlot.take() {
+            core.runQueue.push_back_or_overflow(task, &*cx.worker.multiThreadSchedulerHandle);
         }
 
         // We are taking the core from the context and sending it to another
@@ -438,16 +418,15 @@ fn run(worker: Arc<Worker>) {
     #[cfg(debug_assertions)]
     let _abort_on_panic = AbortOnPanic;
 
-    // Acquire a core. If this fails, then another thread is running this
-    // worker and there is nothing further to do.
+    // Acquire a core. If this fails, then another thread is running this worker and there is nothing further to do.
     let core = match worker.core.take() {
         Some(core) => core,
         None => return,
     };
 
-    let handle = scheduler::SchedulerHandleEnum::MultiThread(worker.multiThreadSchedulerHandle.clone());
+    let schedulerHandleEnum = scheduler::SchedulerHandleEnum::MultiThread(worker.multiThreadSchedulerHandle.clone());
 
-    context::enter_runtime(&handle, true, |_| {
+    context::enter_runtime(&schedulerHandleEnum, true, |_| {
         // Set the worker context.
         let threadLocalContextEnum = scheduler::ThreadLocalContextEnum::MultiThread(MultiThreadThreadLocalContext {
             worker,
@@ -547,23 +526,20 @@ impl MultiThreadThreadLocalContext {
 
             let mut lifo_polls = 0;
 
-            // As long as there is budget remaining and a task exists in the
-            // `lifo_slot`, then keep running.
+            // As long as there is budget remaining and a task exists in the `lifo_slot`, then keep running.
             loop {
-                // Check if we still have the core. If not, the core was stolen
-                // by another worker.
+                // Check if we still have the core. If not, the core was stolen by another worker.
                 let mut core = match self.core.borrow_mut().take() {
                     Some(core) => core,
                     None => {
                         // In this case, we cannot call `reset_lifo_enabled()`
-                        // because the core was stolen. The stealer will handle
-                        // that at the top of `Context::run`
+                        // because the core was stolen. The stealer will handle that at the top of `Context::run`
                         return Err(());
                     }
                 };
 
                 // Check for a task in the LIFO slot
-                let task = match core.lifo_slot.take() {
+                let task = match core.lifoSlot.take() {
                     Some(task) => task,
                     None => {
                         self.reset_lifo_enabled(&mut core);
@@ -572,21 +548,17 @@ impl MultiThreadThreadLocalContext {
                 };
 
                 if !coop::has_budget_remaining() {
-                    // Not enough budget left to run the LIFO task, push it to
-                    // the back of the queue and return.
-                    core.run_queue.push_back_or_overflow(
-                        task,
-                        &*self.worker.multiThreadSchedulerHandle,
-                    );
+                    // Not enough budget left to run the LIFO task, push it to the back of the queue and return.
+                    core.runQueue.push_back_or_overflow(task, &*self.worker.multiThreadSchedulerHandle);
+
                     // If we hit this point, the LIFO slot should be enabled.
                     // There is no need to reset it.
-                    debug_assert!(core.lifo_enabled);
+                    debug_assert!(core.lifoEnabled);
                     return Ok(core);
                 }
 
                 // Track that we are about to run a task from the LIFO slot.
                 lifo_polls += 1;
-                super::counters::inc_lifo_schedules();
 
                 // Disable the LIFO slot if we reach our limit
                 //
@@ -596,8 +568,7 @@ impl MultiThreadThreadLocalContext {
                 // repeatedly schedule the other. To mitigate this, we limit the
                 // number of times the LIFO slot is prioritized.
                 if lifo_polls >= MAX_LIFO_POLLS_PER_TICK {
-                    core.lifo_enabled = false;
-                    super::counters::inc_lifo_capped();
+                    core.lifoEnabled = false;
                 }
 
                 // Run the LIFO task, then loop
@@ -609,17 +580,15 @@ impl MultiThreadThreadLocalContext {
     }
 
     fn reset_lifo_enabled(&self, core: &mut Core) {
-        core.lifo_enabled = !self.worker.multiThreadSchedulerHandle.workerSharedState.config.disable_lifo_slot;
+        core.lifoEnabled = !self.worker.multiThreadSchedulerHandle.workerSharedState.config.disable_lifo_slot;
     }
 
     fn assert_lifo_enabled_is_correct(&self, core: &Core) {
-        debug_assert_eq!(core.lifo_enabled, !self.worker.multiThreadSchedulerHandle.workerSharedState.config.disable_lifo_slot);
+        debug_assert_eq!(core.lifoEnabled, !self.worker.multiThreadSchedulerHandle.workerSharedState.config.disable_lifo_slot);
     }
 
     fn maintenance(&self, mut core: Box<Core>) -> Box<Core> {
         if core.tick % self.worker.multiThreadSchedulerHandle.workerSharedState.config.event_interval == 0 {
-            super::counters::inc_num_maintenance();
-
             core.stats.end_processing_scheduled_tasks();
 
             // Call `park` with a 0 timeout. This enables the I/O driver, timer, ...
@@ -652,7 +621,7 @@ impl MultiThreadThreadLocalContext {
         }
 
         if core.transition_to_parked(&self.worker) {
-            while !core.is_shutdown && !core.is_traced {
+            while !core.is_shutdown  {
                 core = self.park_timeout(core, None);
 
                 // Run regularly scheduled maintenance
@@ -742,7 +711,7 @@ impl Core {
             // `run_queue`. So, we can be confident that by the time we call
             // `run_queue.push_back` below, there will be *at least* `cap`
             // available slots in the queue.
-            let cap = usize::min(self.run_queue.remaining_slots(), self.run_queue.max_capacity() / 2);
+            let cap = usize::min(self.runQueue.remaining_slots(), self.runQueue.max_capacity() / 2);
 
             // The worker is currently idle, pull a batch of work from the
             // injection queue. We don't want to pull *all* the work so other
@@ -763,14 +732,14 @@ impl Core {
             let ret = tasks.next();
 
             // Push the rest of the on the run queue
-            self.run_queue.push_back(tasks);
+            self.runQueue.push_back(tasks);
 
             ret
         }
     }
 
     fn next_local_task(&mut self) -> Option<Notified> {
-        self.lifo_slot.take().or_else(|| self.run_queue.pop())
+        self.lifoSlot.take().or_else(|| self.runQueue.pop())
     }
 
     /// Function responsible for stealing tasks from another worker
@@ -783,23 +752,22 @@ impl Core {
             return None;
         }
 
-        let num = worker.multiThreadSchedulerHandle.workerSharedState.remotes.len();
-        // Start from a random worker
-        let start = self.rand.fastrand_n(num as u32) as usize;
+        let remoteLen = worker.multiThreadSchedulerHandle.workerSharedState.remotes.len();
 
-        for i in 0..num {
-            let i = (start + i) % num;
+        // 通过随机数来确定由哪个remote起始来steal
+        let start = self.rand.fastrand_n(remoteLen as u32) as usize;
 
-            // Don't steal from ourself! We know we don't have work.
+        for i in 0..remoteLen {
+            let i = (start + i) % remoteLen;
+
+            // Don't steal from ourself 这是当前的worker
             if i == worker.index {
                 continue;
             }
 
-            let target = &worker.multiThreadSchedulerHandle.workerSharedState.remotes[i];
-            if let Some(task) = target
-                .steal
-                .steal_into(&mut self.run_queue, &mut self.stats)
-            {
+            let targetRemote = &worker.multiThreadSchedulerHandle.workerSharedState.remotes[i];
+
+            if let Some(task) = targetRemote.steal.steal_into(&mut self.runQueue) {
                 return Some(task);
             }
         }
@@ -826,7 +794,7 @@ impl Core {
     }
 
     fn has_tasks(&self) -> bool {
-        self.lifo_slot.is_some() || self.run_queue.has_tasks()
+        self.lifoSlot.is_some() || self.runQueue.has_tasks()
     }
 
     fn should_notify_others(&self) -> bool {
@@ -835,7 +803,7 @@ impl Core {
         if self.is_searching {
             return false;
         }
-        self.lifo_slot.is_some() as usize + self.run_queue.len() > 1
+        self.lifoSlot.is_some() as usize + self.runQueue.len() > 1
     }
 
     /// Prepares the worker state for parking.
@@ -843,7 +811,7 @@ impl Core {
     /// Returns true if the transition happened, false if there is work to do first.
     fn transition_to_parked(&mut self, worker: &Worker) -> bool {
         // Workers should not park if they have work to do
-        if self.has_tasks() || self.is_traced {
+        if self.has_tasks() {
             return false;
         }
 
@@ -894,11 +862,6 @@ impl Core {
             // Check if the scheduler has been shutdown
             let synced = worker.multiThreadSchedulerHandle.workerSharedState.synced.lock();
             self.is_shutdown = worker.multiThreadSchedulerHandle.workerSharedState.injectShared.is_closed(&synced.injectSyncState);
-        }
-
-        if !self.is_traced {
-            // Check if the worker should be tracing.
-            self.is_traced = worker.multiThreadSchedulerHandle.workerSharedState.trace_status.trace_requested();
         }
     }
 
@@ -985,19 +948,19 @@ impl MultiThreadSchedulerHandle {
         // task must always be pushed to the back of the queue, enabling other
         // tasks to be executed. If **not** a yield, then there is more
         // flexibility and the task may go to the front of the queue.
-        let should_notify = if is_yield || !core.lifo_enabled {
-            core.run_queue.push_back_or_overflow(task, self);
+        let should_notify = if is_yield || !core.lifoEnabled {
+            core.runQueue.push_back_or_overflow(task, self);
             true
         } else {
             // Push to the LIFO slot
-            let prev = core.lifo_slot.take();
+            let prev = core.lifoSlot.take();
             let ret = prev.is_some();
 
             if let Some(prev) = prev {
-                core.run_queue.push_back_or_overflow(prev, self);
+                core.runQueue.push_back_or_overflow(prev, self);
             }
 
-            core.lifo_slot = Some(task);
+            core.lifoSlot = Some(task);
 
             ret
         };
@@ -1036,10 +999,7 @@ impl MultiThreadSchedulerHandle {
     }
 
     fn notify_parked_local(&self) {
-        super::counters::inc_num_inc_notify_local();
-
         if let Some(index) = self.workerSharedState.idle.worker_to_notify(&self.workerSharedState) {
-            super::counters::inc_num_unparks_local();
             self.workerSharedState.remotes[index].unParker.unpark(&self.driverHandle);
         }
     }

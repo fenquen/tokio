@@ -78,26 +78,18 @@ impl<T: ?Sized + AsyncRead + Unpin> AsyncRead for &mut T {
     deref_async_read!();
 }
 
-impl<P> AsyncRead for Pin<P>
-where
-    P: DerefMut + Unpin,
-    P::Target: AsyncRead,
-{
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+impl<P: DerefMut<Target: AsyncRead> + Unpin> AsyncRead for Pin<P> {
+    fn poll_read(self: Pin<&mut Self>,
+                 cx: &mut Context<'_>,
+                 buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         self.get_mut().as_mut().poll_read(cx, buf)
     }
 }
 
 impl AsyncRead for &[u8] {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_read(mut self: Pin<&mut Self>,
+                 _cx: &mut Context<'_>,
+                 buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let amt = std::cmp::min(self.len(), buf.remaining());
         let (a, b) = self.split_at(amt);
         buf.put_slice(a);
@@ -107,11 +99,9 @@ impl AsyncRead for &[u8] {
 }
 
 impl<T: AsRef<[u8]> + Unpin> AsyncRead for io::Cursor<T> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_read(mut self: Pin<&mut Self>,
+                 _cx: &mut Context<'_>,
+                 buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let pos = self.position();
         let slice: &[u8] = (*self).get_ref().as_ref();
 

@@ -19,8 +19,7 @@ use tokio::io::AsyncRead;
 /// # #[tokio::main]
 /// # async fn main() -> std::io::Result<()> {
 ///
-/// // Create a reader from an iterator. This particular reader will always be
-/// // ready.
+/// // Create a reader from an iterator. This particular reader will always be ready.
 /// let mut read = StreamReader::new(stream::iter(vec![Result::Ok(Bytes::from_static(&[0, 1, 2, 3]))]));
 ///
 /// let mut buf = BytesMut::new();
@@ -46,7 +45,6 @@ where
     R: AsyncRead + Unpin,
     B: BufMut,
 {
-    return ReadBufFn(read, buf).await;
 
     struct ReadBufFn<'a, R, B>(&'a mut R, &'a mut B);
 
@@ -62,4 +60,6 @@ where
             crate::util::poll_read_buf(Pin::new(this.0), cx, this.1)
         }
     }
+
+    ReadBufFn(read, buf).await
 }

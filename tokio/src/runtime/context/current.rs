@@ -21,7 +21,7 @@ pub(crate) struct SetCurrentGuard {
 impl Drop for SetCurrentGuard {
     fn drop(&mut self) {
         CONTEXT.with(|ctx| {
-            let depth = ctx.currentSchedulerHandleEnumCell.depth.get();
+            let depth = ctx.schedulerHandleEnumCell.depth.get();
 
             if depth != self.depth {
                 if !std::thread::panicking() {
@@ -34,8 +34,8 @@ impl Drop for SetCurrentGuard {
                 return;
             }
 
-            *ctx.currentSchedulerHandleEnumCell.schedulerHandleEnum.borrow_mut() = self.prevSchedulerHandleEnumCell.take();
-            ctx.currentSchedulerHandleEnumCell.depth.set(depth - 1);
+            *ctx.schedulerHandleEnumCell.schedulerHandleEnum.borrow_mut() = self.prevSchedulerHandleEnumCell.take();
+            ctx.schedulerHandleEnumCell.depth.set(depth - 1);
         });
     }
 }
@@ -64,7 +64,7 @@ pub(crate) fn withCurrentSchedulerHandleEnum<F, R>(f: F) -> Result<R, TryCurrent
 where
     F: FnOnce(&scheduler::SchedulerHandleEnum) -> R,
 {
-    match CONTEXT.try_with(|ctx| ctx.currentSchedulerHandleEnumCell.schedulerHandleEnum.borrow().as_ref().map(f)) {
+    match CONTEXT.try_with(|ctx| ctx.schedulerHandleEnumCell.schedulerHandleEnum.borrow().as_ref().map(f)) {
         Ok(Some(ret)) => Ok(ret),
         Ok(None) => Err(TryCurrentError::new_no_context()),
         Err(_access_error) => Err(TryCurrentError::new_thread_local_destroyed()),
@@ -73,13 +73,13 @@ where
 
 impl Context {
     pub(super) fn set_current(&self, schedulerHandleEnum: &scheduler::SchedulerHandleEnum) -> SetCurrentGuard {
-        let old_handle = self.currentSchedulerHandleEnumCell.schedulerHandleEnum.borrow_mut().replace(schedulerHandleEnum.clone());
-        let depth = self.currentSchedulerHandleEnumCell.depth.get();
+        let old_handle = self.schedulerHandleEnumCell.schedulerHandleEnum.borrow_mut().replace(schedulerHandleEnum.clone());
+        let depth = self.schedulerHandleEnumCell.depth.get();
 
         assert_ne!(depth, usize::MAX, "reached max `enter` depth");
 
         let depth = depth + 1;
-        self.currentSchedulerHandleEnumCell.depth.set(depth);
+        self.schedulerHandleEnumCell.depth.set(depth);
 
         SetCurrentGuard {
             prevSchedulerHandleEnumCell: old_handle,

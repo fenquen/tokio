@@ -36,7 +36,7 @@ struct Context {
 
     /// Handle to the runtime scheduler running on the current thread.
     #[cfg(feature = "rt")]
-    currentSchedulerHandleEnumCell: current::SchedulerHandleEnumCell,
+    schedulerHandleEnumCell: current::SchedulerHandleEnumCell,
 
     /// Handle to the scheduler's internal "context"
     #[cfg(feature = "rt")]
@@ -69,7 +69,7 @@ thread_local! {
             // Tracks the current runtime handle to use when spawning,
             // accessing drivers, etc...
             #[cfg(feature = "rt")]
-            currentSchedulerHandleEnumCell: current::SchedulerHandleEnumCell::new(),
+            schedulerHandleEnumCell: current::SchedulerHandleEnumCell::new(),
 
             // Tracks the current scheduler internal context
             #[cfg(feature = "rt")]
@@ -146,7 +146,7 @@ cfg_rt! {
     }
 
     pub(super) fn set_scheduler<R>(v: &scheduler::ThreadLocalContextEnum, f: impl FnOnce() -> R) -> R {
-        CONTEXT.with(|c| c.threadLocalContextEnum.set(v, f))
+        CONTEXT.with(|context| context.threadLocalContextEnum.set(v, f))
     }
 
     #[track_caller]
