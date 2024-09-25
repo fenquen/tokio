@@ -63,12 +63,6 @@ unsafe impl<T> Sync for Inner<T> {}
 #[cfg(not(loom))]
 const LOCAL_QUEUE_CAPACITY: usize = 256;
 
-// Shrink the size of the local queue when using loom. This shouldn't impact
-// logic, but allows loom to test more edge cases in a reasonable a mount of
-// time.
-#[cfg(loom)]
-const LOCAL_QUEUE_CAPACITY: usize = 4;
-
 const MASK: usize = LOCAL_QUEUE_CAPACITY - 1;
 
 // Constructing the fixed size array directly is very awkward. The only way to
@@ -128,8 +122,7 @@ impl<T> Local<T> {
         !self.inner.is_empty()
     }
 
-    /// Pushes a batch of tasks to the back of the queue. All tasks must fit in
-    /// the local queue.
+    /// Pushes a batch of tasks to the back of the queue. All tasks must fit in the local queue.
     ///
     /// # Panics
     ///
@@ -373,14 +366,14 @@ impl<T> Steal<T> {
     }
 
     /// Steals half the tasks from self and place them into `dst`.
-    pub(crate) fn steal_into(&self, dest: &mut Local<T>) -> Option<task::Notified<T>> {
+    pub(crate) fn steal_into(&self, destRunQueue: &mut Local<T>) -> Option<task::Notified<T>> {
         // Safety: the caller is the only thread that mutates `dst.tail` and holds a mutable reference.
-        let destTail = unsafe { dest.inner.tail.unsync_load() };
+        let destTail = unsafe { destRunQueue.inner.tail.unsync_load() };
 
         // To the caller, `dst` may **look** empty but still have values
         // contained in the buffer. If another thread is concurrently stealing
         // from `dst` there may not be enough capacity to steal.
-        let (steal, _) = unpack(dest.inner.head.load(Acquire));
+        let (steal, _) = unpack(destRunQueue.inner.head.load(Acquire));
 
         // we *could* try to steal less here, but for simplicity, we're just going to abort.
         if destTail.wrapping_sub(steal) > (LOCAL_QUEUE_CAPACITY as UnsignedShort / 2) {
@@ -388,7 +381,7 @@ impl<T> Steal<T> {
         }
 
         // Steal the tasks into `dst`'s buffer. This does not yet expose the tasks in `dst`.
-        let mut stolenCount = self.steal_into2(dest, destTail);
+        let mut stolenCount = self.steal_into2(destRunQueue, destTail);
 
         // No tasks were stolen
         if stolenCount == 0 {
@@ -403,7 +396,7 @@ impl<T> Steal<T> {
 
         // safety: the value was written as part of `steal_into2` and not
         // exposed to stealers, so no other thread can access it.
-        let ret = dest.inner.buffer[ret_idx].with(|ptr| unsafe { ptr::read((*ptr).as_ptr()) });
+        let ret = destRunQueue.inner.buffer[ret_idx].with(|ptr| unsafe { ptr::read((*ptr).as_ptr()) });
 
         // The `dst` queue is empty, but a single task was stolen
         if stolenCount == 0 {
@@ -411,13 +404,13 @@ impl<T> Steal<T> {
         }
 
         // Make the stolen items available to consumers
-        dest.inner.tail.store(destTail.wrapping_add(stolenCount), Release);
+        destRunQueue.inner.tail.store(destTail.wrapping_add(stolenCount), Release);
 
         Some(ret)
     }
 
     // Steal tasks from `self`, placing them into `dst`. Returns the number of tasks that were stolen.
-    fn steal_into2(&self, dst: &mut Local<T>, dst_tail: UnsignedShort) -> UnsignedShort {
+    fn steal_into2(&self, destRunQueue: &mut Local<T>, dst_tail: UnsignedShort) -> UnsignedShort {
         let mut prev_packed = self.0.head.load(Acquire);
         let mut next_packed;
 
@@ -443,9 +436,9 @@ impl<T> Steal<T> {
             }
 
             // Update the real head index to acquire the tasks.
-            let steal_to = srcHeadReal.wrapping_add(stolenCount);
-            assert_ne!(srcHeadStealFrom, steal_to);
-            next_packed = pack(srcHeadStealFrom, steal_to);
+            let srcHeadStealTo = srcHeadReal.wrapping_add(stolenCount);
+            assert_ne!(srcHeadStealFrom, srcHeadStealTo);
+            next_packed = pack(srcHeadStealFrom, srcHeadStealTo);
 
             // Claim all those tasks. This is done by incrementing the "real" head but not the steal.
             // By doing this, no other thread is able to steal from this queue until the current thread completes.
@@ -476,7 +469,7 @@ impl<T> Steal<T> {
 
             // Write the task to the new slot
             // safety: `dst` queue is empty and we are the only producer to this queue.
-            dst.inner.buffer[dst_idx].with_mut(|ptr| unsafe { ptr::write((*ptr).as_mut_ptr(), task) });
+            destRunQueue.inner.buffer[dst_idx].with_mut(|ptr| unsafe { ptr::write((*ptr).as_mut_ptr(), task) });
         }
 
         let mut prev_packed = next_packed;

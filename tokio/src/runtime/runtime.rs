@@ -450,8 +450,7 @@ impl Drop for Runtime {
             }
             #[cfg(feature = "rt-multi-thread")]
             SchedulerEnum::MultiThread(multi_thread) => {
-                // The threaded scheduler drops its tasks on its worker threads, which is
-                // already in the runtime's context.
+                // The threaded scheduler drops its tasks on its worker threads, which is already in the runtime's context.
                 multi_thread.shutdown(&self.runtimeHandle.schedulerHandleEnum);
             }
         }

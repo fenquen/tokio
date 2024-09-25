@@ -25,7 +25,6 @@ pub(crate) struct DriverHandle {
     pub(crate) ioHandleEnum: IOHandleEnum,
 
     /// Signal driver handle
-    #[cfg_attr(any(not(unix), loom), allow(dead_code))]
     pub(crate) signalDriverHandle: Option<crate::runtime::signal::SignalDriverHandle>,
 
     /// Time driver handle
@@ -264,7 +263,7 @@ cfg_not_signal_internal! {
 #[cfg(not(loom))]
 #[cfg(not(target_os = "wasi"))]
 fn create_process_driver(signal_driver: crate::runtime::signal::SignalDriver) -> crate::runtime::process::ProcessDriver {
-    crate::runtime::process::ProcessDriver::new(signal_driver)
+    ProcessDriver::new(signal_driver)
 }
 
 

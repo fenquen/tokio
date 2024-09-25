@@ -12,8 +12,7 @@ use std::sync::Mutex;
 /// very frequently, so the cost of the mutex should be minimal.
 #[derive(Debug)]
 pub(crate) struct RngSeedGenerator {
-    /// Internal state for the seed generator. We keep it in a Mutex so that we can safely
-    /// use it across multiple threads.
+    /// Internal state for the seed generator. We keep it in a Mutex so that we can safely use it across multiple threads.
     state: Mutex<FastRand>,
 }
 
@@ -45,8 +44,7 @@ impl FastRand {
     /// Replaces the state of the random number generator with the provided seed, returning
     /// the seed that represents the previous state of the random number generator.
     ///
-    /// The random number generator will become equivalent to one created with
-    /// the same seed.
+    /// The random number generator will become equivalent to one created with the same seed.
     pub(crate) fn replace_seed(&mut self, seed: RngSeed) -> RngSeed {
         let old_seed = RngSeed::from_pair(self.one, self.two);
 

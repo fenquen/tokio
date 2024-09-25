@@ -36,8 +36,6 @@ pub(crate) struct SignalDriverHandle {
     inner: Weak<()>,
 }
 
-// ===== impl Driver =====
-
 impl SignalDriver {
     /// creates a new signal `Driver` instance that delegates wakeups to `park`.
     pub(crate) fn new(io: io::IODriver, io_handle: &io::IODriverHandle) -> std_io::Result<Self> {

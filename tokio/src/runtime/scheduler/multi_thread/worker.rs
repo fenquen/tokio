@@ -702,7 +702,7 @@ impl Core {
                 return notified;
             }
 
-            // 到不是local的上边看看 要是有的话搬到local
+            // 到global的上边看看 要是有的话搬到local
             if worker.multiThreadSchedulerHandle.workerSharedState.injectShared.is_empty() {
                 return None;
             }

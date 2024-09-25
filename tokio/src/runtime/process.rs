@@ -1,5 +1,3 @@
-#![cfg_attr(not(feature = "rt"), allow(dead_code))]
-
 use crate::process::unix::GlobalOrphanQueue;
 use crate::runtime::driver;
 use crate::runtime::signal::{SignalDriver, SignalDriverHandle};
