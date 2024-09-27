@@ -176,9 +176,7 @@ impl<T> Local<T> {
     /// When the queue overflows, half of the current contents of the queue is
     /// moved to the given Injection queue. This frees up capacity for more
     /// tasks to be pushed into the local queue.
-    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(&mut self,
-                                                        mut task: task::Notified<T>,
-                                                        overflow: &O) {
+    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(&mut self, mut task: task::Notified<T>, overflow: &O) {
         let tail = loop {
             let head = self.inner.head.load(Acquire);
             let (steal, real) = unpack(head);
@@ -206,11 +204,6 @@ impl<T> Local<T> {
             }
         };
 
-        self.push_back_finish(task, tail);
-    }
-
-    // Second half of `push_back`
-    fn push_back_finish(&self, task: task::Notified<T>, tail: UnsignedShort) {
         // Map the position to a slot index.
         let idx = tail as usize & MASK;
 
@@ -225,8 +218,7 @@ impl<T> Local<T> {
             }
         });
 
-        // Make the task available. Synchronizes with a load in
-        // `steal_into2`.
+        // Make the task available. Synchronizes with a load in `steal_into2`.
         self.inner.tail.store(tail.wrapping_add(1), Release);
     }
 

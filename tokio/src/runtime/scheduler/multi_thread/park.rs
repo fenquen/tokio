@@ -105,8 +105,8 @@ impl Clone for Parker {
 }
 
 impl UnParker {
-    pub(crate) fn unpark(&self, driver: &driver::DriverHandle) {
-        self.inner.unpark(driver);
+    pub(crate) fn unpark(&self, driverHandle: &driver::DriverHandle) {
+        self.inner.unpark(driverHandle);
     }
 }
 
@@ -115,11 +115,7 @@ impl Inner {
     fn park(&self, handle: &driver::DriverHandle) {
         // If we were previously notified then we consume this notification and
         // return quickly.
-        if self
-            .state
-            .compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst)
-            .is_ok()
-        {
+        if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
             return;
         }
 
@@ -134,10 +130,7 @@ impl Inner {
         // Otherwise we need to coordinate going to sleep
         let mut m = self.mutex.lock();
 
-        match self
-            .state
-            .compare_exchange(EMPTY, PARKED_CONDVAR, SeqCst, SeqCst)
-        {
+        match self.state.compare_exchange(EMPTY, PARKED_CONDVAR, SeqCst, SeqCst) {
             Ok(_) => {}
             Err(NOTIFIED) => {
                 // We must read here, even though we know it will be `NOTIFIED`.
@@ -157,12 +150,8 @@ impl Inner {
         loop {
             m = self.condvar.wait(m).unwrap();
 
-            if self
-                .state
-                .compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst)
-                .is_ok()
-            {
-                // got a notification
+            // got a notification
+            if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
                 return;
             }
 
@@ -171,10 +160,7 @@ impl Inner {
     }
 
     fn park_driver(&self, driver: &mut Driver, handle: &driver::DriverHandle) {
-        match self
-            .state
-            .compare_exchange(EMPTY, PARKED_DRIVER, SeqCst, SeqCst)
-        {
+        match self.state.compare_exchange(EMPTY, PARKED_DRIVER, SeqCst, SeqCst) {
             Ok(_) => {}
             Err(NOTIFIED) => {
                 // We must read here, even though we know it will be `NOTIFIED`.
@@ -200,7 +186,7 @@ impl Inner {
         }
     }
 
-    fn unpark(&self, driver: &driver::DriverHandle) {
+    fn unpark(&self, driverHandle: &driver::DriverHandle) {
         // To ensure the unparked thread will observe any writes we made before
         // this call, we must perform a release operation that `park` can
         // synchronize with. To do that we must write `NOTIFIED` even if `state`
@@ -210,7 +196,7 @@ impl Inner {
             EMPTY => {}    // no one was waiting
             NOTIFIED => {} // already unparked
             PARKED_CONDVAR => self.unpark_condvar(),
-            PARKED_DRIVER => driver.unpark(),
+            PARKED_DRIVER => driverHandle.unpark(),
             actual => panic!("inconsistent state in unpark; actual = {}", actual),
         }
     }

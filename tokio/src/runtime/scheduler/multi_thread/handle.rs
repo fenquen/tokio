@@ -38,7 +38,9 @@ impl MultiThreadSchedulerHandle {
             _phantom: Default::default(),
         });
 
-        me.schedule_option_task_without_yield(notified);
+        if let Some(task) = notified {
+            me.scheduleTask(task, false);
+        }
 
         handle
     }

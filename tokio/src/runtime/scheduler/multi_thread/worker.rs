@@ -59,7 +59,7 @@
 use crate::loom::sync::{Arc, Mutex};
 use crate::runtime;
 use crate::runtime::scheduler::multi_thread::{
-    idle, queue, Counters, Idle, MultiThreadSchedulerHandle, Overflow, Parker, Stats, UnParker,
+    idle, queue, Idle, MultiThreadSchedulerHandle, Overflow, Parker, Stats, UnParker,
 };
 use crate::runtime::scheduler::{inject, Defer, Lock};
 use crate::runtime::task::{OwnedTasks, TaskHarnessScheduleHooks};
@@ -462,13 +462,11 @@ impl MultiThreadThreadLocalContext {
         while !core.is_shutdown {
             self.assert_lifo_enabled_is_correct(&core);
 
-            // Increment the tick
             core.tick();
 
-            // Run maintenance, if needed
             core = self.maintenance(core);
 
-            // First, check work available to the current worker.
+            // get work available in the current worker.
             if let Some(notified) = core.next_task(&self.worker) {
                 core = self.run_task(notified, core)?;
                 continue;
@@ -621,7 +619,7 @@ impl MultiThreadThreadLocalContext {
         }
 
         if core.transition_to_parked(&self.worker) {
-            while !core.is_shutdown  {
+            while !core.is_shutdown {
                 core = self.park_timeout(core, None);
 
                 // Run regularly scheduled maintenance
@@ -665,7 +663,7 @@ impl MultiThreadThreadLocalContext {
         core.park = Some(park);
 
         if core.should_notify_others() {
-            self.worker.multiThreadSchedulerHandle.notify_parked_local();
+            self.worker.multiThreadSchedulerHandle.notify_parked_remote();
         }
 
         core
@@ -858,10 +856,9 @@ impl Core {
 
     /// Runs maintenance work such as checking the pool's state.
     fn maintenance(&mut self, worker: &Worker) {
+        // Check if the scheduler has been shutdown
         if !self.is_shutdown {
-            // Check if the scheduler has been shutdown
-            let synced = worker.multiThreadSchedulerHandle.workerSharedState.synced.lock();
-            self.is_shutdown = worker.multiThreadSchedulerHandle.workerSharedState.injectShared.is_closed(&synced.injectSyncState);
+            self.is_shutdown = worker.multiThreadSchedulerHandle.workerSharedState.synced.lock().injectSyncState.is_closed;
         }
     }
 
@@ -937,39 +934,34 @@ impl MultiThreadSchedulerHandle {
         });
     }
 
-    pub(super) fn schedule_option_task_without_yield(&self, task: Option<Notified>) {
-        if let Some(task) = task {
-            self.scheduleTask(task, false);
-        }
-    }
-
     fn scheduleLocal(&self, core: &mut Core, task: Notified, is_yield: bool) {
         // Spawning from the worker thread. If scheduling a "yield" then the
         // task must always be pushed to the back of the queue, enabling other
         // tasks to be executed. If **not** a yield, then there is more
         // flexibility and the task may go to the front of the queue.
-        let should_notify = if is_yield || !core.lifoEnabled {
-            core.runQueue.push_back_or_overflow(task, self);
-            true
-        } else {
-            // Push to the LIFO slot
-            let prev = core.lifoSlot.take();
-            let ret = prev.is_some();
+        let should_notify =
+            if is_yield || !core.lifoEnabled {
+                core.runQueue.push_back_or_overflow(task, self);
+                true
+            } else {
+                // Push to the LIFO slot
+                let prev = core.lifoSlot.take();
+                let ret = prev.is_some();
 
-            if let Some(prev) = prev {
-                core.runQueue.push_back_or_overflow(prev, self);
-            }
+                if let Some(prev) = prev {
+                    core.runQueue.push_back_or_overflow(prev, self);
+                }
 
-            core.lifoSlot = Some(task);
+                core.lifoSlot = Some(task);
 
-            ret
-        };
+                ret
+            };
 
         // Only notify if not currently parked. If `park` is `None`, then the
         // scheduling is from a resource driver. As notifications often come in
         // batches, the notification is delayed until the park is complete.
         if should_notify && core.park.is_some() {
-            self.notify_parked_local();
+            self.notify_parked_remote();
         }
     }
 
@@ -998,12 +990,6 @@ impl MultiThreadSchedulerHandle {
         }
     }
 
-    fn notify_parked_local(&self) {
-        if let Some(index) = self.workerSharedState.idle.worker_to_notify(&self.workerSharedState) {
-            self.workerSharedState.remotes[index].unParker.unpark(&self.driverHandle);
-        }
-    }
-
     fn notify_parked_remote(&self) {
         if let Some(index) = self.workerSharedState.idle.worker_to_notify(&self.workerSharedState) {
             self.workerSharedState.remotes[index].unParker.unpark(&self.driverHandle);
@@ -1019,20 +1005,20 @@ impl MultiThreadSchedulerHandle {
     fn notify_if_work_pending(&self) {
         for remote in &self.workerSharedState.remotes[..] {
             if !remote.steal.is_empty() {
-                self.notify_parked_local();
+                self.notify_parked_remote();
                 return;
             }
         }
 
         if !self.workerSharedState.injectShared.is_empty() {
-            self.notify_parked_local();
+            self.notify_parked_remote();
         }
     }
 
     fn transition_worker_from_searching(&self) {
         if self.workerSharedState.idle.transition_worker_from_searching() {
             // We are the final searching worker. Because work was found, we need to notify another worker.
-            self.notify_parked_local();
+            self.notify_parked_remote();
         }
     }
 

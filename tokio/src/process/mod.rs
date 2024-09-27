@@ -1309,13 +1309,6 @@ impl ChildStdin {
 }
 
 impl ChildStdout {
-    /// Creates an asynchronous `ChildStdout` from a synchronous one.
-    ///
-    /// # Errors
-    ///
-    /// This method may fail if an error is encountered when setting the pipe to
-    /// non-blocking mode, or when registering the pipe with the runtime's IO
-    /// driver.
     pub fn from_std(inner: std::process::ChildStdout) -> io::Result<Self> {
         Ok(Self {
             inner: imp::stdio(inner)?,
@@ -1324,13 +1317,6 @@ impl ChildStdout {
 }
 
 impl ChildStderr {
-    /// Creates an asynchronous `ChildStderr` from a synchronous one.
-    ///
-    /// # Errors
-    ///
-    /// This method may fail if an error is encountered when setting the pipe to
-    /// non-blocking mode, or when registering the pipe with the runtime's IO
-    /// driver.
     pub fn from_std(inner: std::process::ChildStderr) -> io::Result<Self> {
         Ok(Self {
             inner: imp::stdio(inner)?,
@@ -1413,7 +1399,6 @@ impl TryInto<Stdio> for ChildStderr {
 }
 
 #[cfg(unix)]
-#[cfg_attr(docsrs, doc(cfg(unix)))]
 mod sys {
     use std::{
         io,

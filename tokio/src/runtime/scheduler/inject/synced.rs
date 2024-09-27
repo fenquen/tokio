@@ -1,13 +1,10 @@
-#![cfg_attr(
-    any(not(all(tokio_unstable, feature = "full")), target_family = "wasm"),
-    allow(dead_code)
-)]
+#![cfg_attr(any(not(all(tokio_unstable, feature = "full")), target_family = "wasm"), allow(dead_code))]
 
 use crate::runtime::task;
 
 pub(crate) struct InjectSyncState {
     /// True if the queue is closed.
-    pub(super) is_closed: bool,
+    pub is_closed: bool,
 
     /// Linked-list head.
     pub(super) head: Option<task::RawTask>,

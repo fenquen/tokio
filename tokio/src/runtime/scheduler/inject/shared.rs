@@ -36,12 +36,6 @@ impl<T: 'static> Shared<T> {
         self.len() == 0
     }
 
-    // Kind of annoying to have to include the cfg here
-    #[cfg(any(tokio_taskdump, feature = "rt-multi-thread"))]
-    pub(crate) fn is_closed(&self, synced: &InjectSyncState) -> bool {
-        synced.is_closed
-    }
-
     /// Closes the injection queue, returns `true` if the queue is open when the
     /// transition is made.
     pub(crate) fn close(&self, synced: &mut InjectSyncState) -> bool {
