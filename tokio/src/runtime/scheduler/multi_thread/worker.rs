@@ -90,11 +90,10 @@ struct Core {
     /// Used to schedule bookkeeping tasks every so often.
     tick: u32,
 
-    /// When a task is scheduled from a worker, it is stored in this slot. The
-    /// worker will check this slot for a task **before** checking the run queue.
-    /// This effectively results in the **last** scheduled task to be run
-    /// next (LIFO). This is an optimization for improving locality which
-    /// benefits message passing patterns and helps to reduce latency.
+    /// When a task is scheduled from a worker, it is stored in this slot.
+    /// The worker will check this slot for a task **before** checking the run queue.
+    /// This effectively results in the **last** scheduled task to be run next (LIFO).
+    /// This is an optimization for improving locality which benefits message passing patterns and helps to reduce latency.
     lifoSlot: Option<Notified>,
 
     /// When `true`, locally scheduled tasks go to the LIFO slot. When `false`,
@@ -104,8 +103,8 @@ struct Core {
     /// The worker-local run queue.
     runQueue: queue::Local<Arc<MultiThreadSchedulerHandle>>,
 
-    /// True if the worker is currently searching for more work. Searching
-    /// involves attempting to steal from other workers.
+    /// True if the worker is currently searching for more work.
+    /// searching involves attempting to steal from other workers.
     is_searching: bool,
 
     /// True if the scheduler is being shutdown
@@ -503,8 +502,7 @@ impl MultiThreadThreadLocalContext {
     fn run_task(&self, task: Notified, mut core: Box<Core>) -> RunResult {
         let localNotified = self.worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.assert_owner(task);
 
-        // Make sure the worker is not in the **searching** state. This enables
-        // another idle worker to try to steal work.
+        // make sure the worker is not in the **searching** state. This enables another idle worker to try to steal work.
         core.transition_from_searching(&self.worker);
 
         self.assert_lifo_enabled_is_correct(&core);
@@ -526,12 +524,13 @@ impl MultiThreadThreadLocalContext {
 
             // As long as there is budget remaining and a task exists in the `lifo_slot`, then keep running.
             loop {
+                // 临时提取threadContext上的core
                 // Check if we still have the core. If not, the core was stolen by another worker.
                 let mut core = match self.core.borrow_mut().take() {
                     Some(core) => core,
                     None => {
-                        // In this case, we cannot call `reset_lifo_enabled()`
-                        // because the core was stolen. The stealer will handle that at the top of `Context::run`
+                        // in this case, we cannot call `reset_lifo_enabled()` because the core was stolen.
+                        // the stealer will handle that at the top of `Context::run`
                         return Err(());
                     }
                 };
@@ -569,10 +568,12 @@ impl MultiThreadThreadLocalContext {
                     core.lifoEnabled = false;
                 }
 
-                // Run the LIFO task, then loop
+                // 还回原来上边take掉的core
                 *self.core.borrow_mut() = Some(core);
-                let task = self.worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.assert_owner(task);
-                task.run();
+
+                // run the LIFO task, then loop
+                let localNotified = self.worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.assert_owner(task);
+                localNotified.run();
             }
         })
     }
@@ -1016,8 +1017,8 @@ impl MultiThreadSchedulerHandle {
     }
 
     fn transition_worker_from_searching(&self) {
+        // the final searching worker. Because work was found, we need to notify another worker.
         if self.workerSharedState.idle.transition_worker_from_searching() {
-            // We are the final searching worker. Because work was found, we need to notify another worker.
             self.notify_parked_remote();
         }
     }

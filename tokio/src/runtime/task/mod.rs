@@ -309,10 +309,8 @@ pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Sch
 
 /// This is the constructor for a new rawTask. Three references to the rawTask are
 /// created. The first task reference is usually put into an `OwnedTasks`
-/// immediately. The Notified is sent to the scheduler as an ordinary
-/// notification.
+/// immediately. The Notified is sent to the scheduler as an ordinary notification.
 #[cfg(feature = "rt")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
 fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T,
                                                               scheduler: S,
                                                               taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>) {

@@ -219,12 +219,7 @@ impl<S: 'static> LocalOwnedTasks<S> {
         }
     }
 
-    pub(crate) fn bind<T>(
-        &self,
-        task: T,
-        scheduler: S,
-        id: super::Id,
-    ) -> (JoinHandle<T::Output>, Option<Notified<S>>)
+    pub(crate) fn bind<T>(&self, task: T, scheduler: S, id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>)
     where
         S: Schedule,
         T: Future + 'static,

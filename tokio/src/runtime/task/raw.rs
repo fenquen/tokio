@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use std::task::{Poll, Waker};
 
 /// Raw task handle
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) struct RawTask {
     headerPtr: NonNull<Header>,
 }
@@ -238,8 +238,6 @@ impl RawTask {
         self.header().set_next(val.map(|task| task.headerPtr));
     }
 }
-
-impl Copy for RawTask {}
 
 unsafe fn poll<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {
     Harness::<T, S>::from_raw(headerPtr).poll();

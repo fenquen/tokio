@@ -13,7 +13,7 @@ pub(super) struct WakerRef<'a, S: 'static> {
 
 /// Returns a `WakerRef` which avoids having to preemptively increase the
 /// refcount if there is no need to do so.
-pub(super) fn waker_ref<S: Schedule>(headerPtr: &NonNull<Header>) -> WakerRef<'_, S> {
+pub(super) fn buildWakerRef<S: Schedule>(headerPtr: &NonNull<Header>) -> WakerRef<'_, S> {
     // `Waker::will_wake` uses the VTABLE pointer as part of the check. This
     // means that `will_wake` will always return false when using the current
     // task's waker. (discussion at rust-lang/rust#66281).

@@ -28,14 +28,10 @@ impl ParkThread {
     }
 
     pub(crate) fn park(&mut self) {
-        #[cfg(loom)]
-        CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
         self.inner.park();
     }
 
     pub(crate) fn park_timeout(&mut self, duration: Duration) {
-        #[cfg(loom)]
-        CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
 
         // Wasm doesn't have threads, so just sleep.
         #[cfg(not(target_family = "wasm"))]
@@ -87,12 +83,6 @@ const NOTIFIED: usize = 2;
 
 tokio_thread_local! {
     static CURRENT_PARKER: ParkThread = ParkThread::new();
-}
-
-// Bit of a hack, but it is only for loom
-#[cfg(loom)]
-tokio_thread_local! {
-    pub(crate) static CURRENT_THREAD_PARK_COUNT: AtomicUsize = AtomicUsize::new(0);
 }
 
 impl Inner {

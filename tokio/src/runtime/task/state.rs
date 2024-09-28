@@ -3,14 +3,6 @@ use crate::loom::sync::atomic::AtomicUsize;
 use std::fmt;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Release};
 
-pub(super) struct State {
-    val: AtomicUsize,
-}
-
-/// Current state value.
-#[derive(Copy, Clone)]
-pub(super) struct Snapshot(usize);
-
 type UpdateResult = Result<Snapshot, Snapshot>;
 
 /// The task is currently being run.
@@ -89,114 +81,113 @@ pub(crate) enum TransitionToNotifiedByRef {
     Submit,
 }
 
-/// All transitions are performed via RMW operations. This establishes an
-/// unambiguous modification order.
+pub(super) struct State {
+    value: AtomicUsize,
+}
+
+/// All transitions are performed via RMW operations. This establishes an unambiguous modification order.
 impl State {
     /// Returns a task's initial state.
     pub(super) fn new() -> State {
         // The raw task returned by this method has a ref-count of three. See
         // the comment on INITIAL_STATE for more.
         State {
-            val: AtomicUsize::new(INITIAL_STATE),
+            value: AtomicUsize::new(INITIAL_STATE),
         }
     }
 
     /// Loads the current state, establishes `Acquire` ordering.
     pub(super) fn load(&self) -> Snapshot {
-        Snapshot(self.val.load(Acquire))
+        Snapshot(self.value.load(Acquire))
     }
 
-    /// Attempts to transition the lifecycle to `Running`. This sets the
-    /// notified bit to false so notifications during the poll can be detected.
+    /// Attempts to transition the lifecycle to `Running`.
+    /// This sets the notified bit to false so notifications during the poll can be detected.
     pub(super) fn transition_to_running(&self) -> TransitionToRunning {
-        self.fetch_update_action(|mut next| {
+        self.fetch_update_action(|mut currentValue| {
             let action;
-            assert!(next.is_notified());
+            assert!(currentValue.is_notified());
 
-            if !next.is_idle() {
-                // This happens if the task is either currently running or if it
-                // has already completed, e.g. if it was cancelled during
-                // shutdown. Consume the ref-count and return.
-                next.ref_dec();
-                if next.ref_count() == 0 {
-                    action = TransitionToRunning::Dealloc;
-                } else {
-                    action = TransitionToRunning::Failed;
-                }
-            } else {
+            if currentValue.is_idle() {
                 // We are able to lock the RUNNING bit.
-                next.set_running();
-                next.unset_notified();
+                currentValue.set_running();
+                currentValue.unset_notified();
 
-                if next.is_cancelled() {
+                if currentValue.is_cancelled() {
                     action = TransitionToRunning::Cancelled;
                 } else {
                     action = TransitionToRunning::Success;
                 }
+            } else {
+                // This happens if the task is either currently running or if it has already completed, e.g
+                // if it was cancelled during shutdown. Consume the ref-count and return.
+                currentValue.ref_dec();
+
+                if currentValue.ref_count() == 0 {
+                    action = TransitionToRunning::Dealloc;
+                } else {
+                    action = TransitionToRunning::Failed;
+                }
             }
-            (action, Some(next))
+
+            (action, Some(currentValue))
         })
     }
 
     /// Transitions the task from `Running` -> `Idle`.
     ///
-    /// The transition to `Idle` fails if the task has been flagged to be
-    /// cancelled.
+    /// The transition to `Idle` fails if the task has been flagged to be cancelled
     pub(super) fn transition_to_idle(&self) -> TransitionToIdle {
-        self.fetch_update_action(|curr| {
-            assert!(curr.is_running());
+        self.fetch_update_action(|currentValue| {
+            assert!(currentValue.is_running());
 
-            if curr.is_cancelled() {
+            if currentValue.is_cancelled() {
                 return (TransitionToIdle::Cancelled, None);
             }
 
-            let mut next = curr;
+            let mut currentValue = currentValue;
             let action;
-            next.unset_running();
+            currentValue.unset_running();
 
-            if !next.is_notified() {
+            if currentValue.is_notified() {
+                // The caller will schedule a new notification, so we create a new ref-count for the notification.
+                // Our own ref-count is kept for now, and the caller will drop it shortly.
+                currentValue.ref_inc();
+
+                action = TransitionToIdle::OkNotified;
+            } else {
                 // Polling the future consumes the ref-count of the Notified.
-                next.ref_dec();
-                if next.ref_count() == 0 {
+                currentValue.ref_dec();
+
+                if currentValue.ref_count() == 0 {
                     action = TransitionToIdle::OkDealloc;
                 } else {
                     action = TransitionToIdle::Ok;
                 }
-            } else {
-                // The caller will schedule a new notification, so we create a
-                // new ref-count for the notification. Our own ref-count is kept
-                // for now, and the caller will drop it shortly.
-                next.ref_inc();
-                action = TransitionToIdle::OkNotified;
             }
 
-            (action, Some(next))
+            (action, Some(currentValue))
         })
     }
 
-    /// Transitions the task from `Running` -> `Complete`.
-    pub(super) fn transition_to_complete(&self) -> Snapshot {
+    /// `Running` -> `Complete`.
+    pub(super) fn transition2Complete(&self) -> Snapshot {
         const DELTA: usize = RUNNING | COMPLETE;
 
-        let prev = Snapshot(self.val.fetch_xor(DELTA, AcqRel));
+        let prev = Snapshot(self.value.fetch_xor(DELTA, AcqRel));
         assert!(prev.is_running());
         assert!(!prev.is_complete());
 
         Snapshot(prev.0 ^ DELTA)
     }
 
-    /// Transitions from `Complete` -> `Terminal`, decrementing the reference
+    /// `Complete` -> `Terminal`, decrementing the reference
     /// count the specified number of times.
     ///
     /// Returns true if the task should be deallocated.
     pub(super) fn transition_to_terminal(&self, count: usize) -> bool {
-        let prev = Snapshot(self.val.fetch_sub(count * REF_ONE, AcqRel));
-        assert!(
-            prev.ref_count() >= count,
-            "current: {}, sub: {}",
-            prev.ref_count(),
-            count
-        );
+        let prev = Snapshot(self.value.fetch_sub(count * REF_ONE, AcqRel));
+        assert!(prev.ref_count() >= count, "current: {}, sub: {}", prev.ref_count(), count);
         prev.ref_count() == count
     }
 
@@ -261,30 +252,6 @@ impl State {
                 snapshot.set_notified();
                 snapshot.ref_inc();
                 (TransitionToNotifiedByRef::Submit, Some(snapshot))
-            }
-        })
-    }
-
-    /// Transitions the state to `NOTIFIED`, unconditionally increasing the ref
-    /// count.
-    ///
-    /// Returns `true` if the notified bit was transitioned from `0` to `1`;
-    /// otherwise `false.`
-    #[cfg(all(
-        tokio_unstable,
-        tokio_taskdump,
-        feature = "rt",
-        target_os = "linux",
-        any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")
-    ))]
-    pub(super) fn transition_to_notified_for_tracing(&self) -> bool {
-        self.fetch_update_action(|mut snapshot| {
-            if snapshot.is_notified() {
-                (false, None)
-            } else {
-                snapshot.set_notified();
-                snapshot.ref_inc();
-                (true, Some(snapshot))
             }
         })
     }
@@ -360,15 +327,7 @@ impl State {
         // set, at which point the CAS will fail.
         //
         // Given this, there is no risk if this operation is reordered.
-        self.val
-            .compare_exchange_weak(
-                INITIAL_STATE,
-                (INITIAL_STATE - REF_ONE) & !JOIN_INTEREST,
-                Release,
-                Relaxed,
-            )
-            .map(|_| ())
-            .map_err(|_| ())
+        self.value.compare_exchange_weak(INITIAL_STATE, (INITIAL_STATE - REF_ONE) & !JOIN_INTEREST, Release, Relaxed).map(|_| ()).map_err(|_| ())
     }
 
     /// Tries to unset the `JOIN_INTEREST` flag.
@@ -445,7 +404,7 @@ impl State {
         // another must already provide any required synchronization.
         //
         // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
-        let prev = self.val.fetch_add(REF_ONE, Relaxed);
+        let prev = self.value.fetch_add(REF_ONE, Relaxed);
 
         // If the reference count overflowed, abort.
         if prev > isize::MAX as usize {
@@ -455,36 +414,32 @@ impl State {
 
     /// Returns `true` if the task should be released.
     pub(super) fn ref_dec(&self) -> bool {
-        let prev = Snapshot(self.val.fetch_sub(REF_ONE, AcqRel));
+        let prev = Snapshot(self.value.fetch_sub(REF_ONE, AcqRel));
         assert!(prev.ref_count() >= 1);
         prev.ref_count() == 1
     }
 
     /// Returns `true` if the task should be released.
     pub(super) fn ref_dec_twice(&self) -> bool {
-        let prev = Snapshot(self.val.fetch_sub(2 * REF_ONE, AcqRel));
+        let prev = Snapshot(self.value.fetch_sub(2 * REF_ONE, AcqRel));
         assert!(prev.ref_count() >= 2);
         prev.ref_count() == 2
     }
 
-    fn fetch_update_action<F, T>(&self, mut f: F) -> T
-    where
-        F: FnMut(Snapshot) -> (T, Option<Snapshot>),
-    {
-        let mut curr = self.load();
+    fn fetch_update_action<F: FnMut(Snapshot) -> (T, Option<Snapshot>), T>(&self, mut f: F) -> T {
+        let mut currentValue = self.load();
 
         loop {
-            let (output, next) = f(curr);
+            let (output, next) = f(currentValue);
+
             let next = match next {
                 Some(next) => next,
                 None => return output,
             };
 
-            let res = self.val.compare_exchange(curr.0, next.0, AcqRel, Acquire);
-
-            match res {
+            match self.value.compare_exchange(currentValue.0, next.0, AcqRel, Acquire) {
                 Ok(_) => return output,
-                Err(actual) => curr = Snapshot(actual),
+                Err(actual) => currentValue = Snapshot(actual),
             }
         }
     }
@@ -501,15 +456,24 @@ impl State {
                 None => return Err(curr),
             };
 
-            let res = self.val.compare_exchange(curr.0, next.0, AcqRel, Acquire);
-
-            match res {
+            match self.value.compare_exchange(curr.0, next.0, AcqRel, Acquire) {
                 Ok(_) => return Ok(next),
                 Err(actual) => curr = Snapshot(actual),
             }
         }
     }
 }
+
+impl fmt::Debug for State {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let snapshot = self.load();
+        snapshot.fmt(fmt)
+    }
+}
+
+/// Current state value.
+#[derive(Copy, Clone)]
+pub(super) struct Snapshot(usize);
 
 impl Snapshot {
     /// Returns `true` if the task is in an idle state.
@@ -587,13 +551,6 @@ impl Snapshot {
     pub(super) fn ref_dec(&mut self) {
         assert!(self.ref_count() > 0);
         self.0 -= REF_ONE;
-    }
-}
-
-impl fmt::Debug for State {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let snapshot = self.load();
-        snapshot.fmt(fmt)
     }
 }
 

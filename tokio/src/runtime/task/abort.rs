@@ -19,7 +19,6 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 ///
 /// [`JoinHandle`]: crate::task::JoinHandle
 /// [`spawn_blocking`]: crate::task::spawn_blocking
-#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
 pub struct AbortHandle {
     raw: RawTask,
 }

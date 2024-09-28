@@ -311,6 +311,7 @@ impl<T: Future, S: Schedule> Core<T, S> {
                 let future = unsafe { Pin::new_unchecked(future) };
 
                 let _guard = TaskIdGuard::enter(self.taskId);
+
                 future.poll(&mut context)
             })
         };

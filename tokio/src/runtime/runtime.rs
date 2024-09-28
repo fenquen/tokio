@@ -135,92 +135,16 @@ impl Runtime {
         }
     }
 
-    /// Creates a new runtime instance with default configuration values.
-    ///
-    /// This results in the multi threaded scheduler, I/O driver, and time driver being
-    /// initialized.
-    ///
-    /// Most applications will not need to call this function directly. Instead,
-    /// they will use the  [`#[tokio::main]` attribute][main]. When a more complex
-    /// configuration is necessary, the [runtime builder] may be used.
-    ///
-    /// See [module level][mod] documentation for more details.
-    ///
-    /// # Examples
-    ///
-    /// Creating a new `Runtime` with default configuration values.
-    ///
-    /// ```
-    /// use tokio::runtime::Runtime;
-    ///
-    /// let rt = Runtime::new()
-    ///     .unwrap();
-    ///
-    /// // Use the runtime...
-    /// ```
-    ///
-    /// [mod]: index.html
-    /// [main]: ../attr.main.html
-    /// [threaded scheduler]: index.html#threaded-scheduler
-    /// [runtime builder]: crate::runtime::Builder
     #[cfg(feature = "rt-multi-thread")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
     pub fn new() -> std::io::Result<Runtime> {
         Builder::new_multi_thread().enable_all().build()
     }
 
-    /// Returns a handle to the runtime's spawner.
-    ///
-    /// The returned handle can be used to spawn tasks that run on this runtime, and can
-    /// be cloned to allow moving the `Handle` to other threads.
-    ///
-    /// Calling [`RuntimeHandle::block_on`] on a handle to a `current_thread` runtime is error-prone.
-    /// Refer to the documentation of [`RuntimeHandle::block_on`] for more.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::Runtime;
-    ///
-    /// let rt = Runtime::new().unwrap();
-    ///
-    /// let handle = rt.handle();
-    ///
-    /// // Use the handle...
-    /// ```
     pub fn handle(&self) -> &RuntimeHandle {
         &self.runtimeHandle
     }
 
     /// Spawns a future onto the Tokio runtime.
-    ///
-    /// This spawns the given future onto the runtime's executor, usually a
-    /// thread pool. The thread pool is then responsible for polling the future
-    /// until it completes.
-    ///
-    /// The provided future will start running in the background immediately
-    /// when `spawn` is called, even if you don't await the returned
-    /// `JoinHandle`.
-    ///
-    /// See [module level][mod] documentation for more details.
-    ///
-    /// [mod]: index.html
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::Runtime;
-    ///
-    /// # fn dox() {
-    /// // Create the runtime
-    /// let rt = Runtime::new().unwrap();
-    ///
-    /// // Spawn a future onto the runtime
-    /// rt.spawn(async {
-    ///     println!("now running on a worker thread");
-    /// });
-    /// # }
-    /// ```
     #[track_caller]
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
@@ -235,22 +159,6 @@ impl Runtime {
     }
 
     /// Runs the provided function on an executor dedicated to blocking operations.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::Runtime;
-    ///
-    /// # fn dox() {
-    /// // Create the runtime
-    /// let rt = Runtime::new().unwrap();
-    ///
-    /// // Spawn a blocking function onto the runtime
-    /// rt.spawn_blocking(|| {
-    ///     println!("now running on a worker thread");
-    /// });
-    /// # }
-    /// ```
     #[track_caller]
     pub fn spawn_blocking<F, R>(&self, func: F) -> JoinHandle<R>
     where

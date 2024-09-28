@@ -243,8 +243,7 @@ impl RuntimeHandle {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let id = crate::runtime::task::Id::next();
-        self.schedulerHandleEnum.spawn(future, id)
+        self.schedulerHandleEnum.spawn(future,  crate::runtime::task::Id::next())
     }
 
     /// Returns the flavor of the current `Runtime`.

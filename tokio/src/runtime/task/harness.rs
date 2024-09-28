@@ -1,7 +1,7 @@
 use crate::future::Future;
 use crate::runtime::task::core::{Cell, Core, Header, Trailer};
 use crate::runtime::task::state::{Snapshot, State};
-use crate::runtime::task::waker::waker_ref;
+use crate::runtime::task::waker::buildWakerRef;
 use crate::runtime::task::{Id, JoinError, Notified, RawTask, Schedule, Task};
 
 use crate::runtime::TaskMeta;
@@ -165,8 +165,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
         }
     }
 
-    /// Polls the task and cancel it if necessary. This takes ownership of a
-    /// ref-count.
+    /// Polls the task and cancel it if necessary. This takes ownership of a ref-count.
     ///
     /// If the return value is Notified, the caller is given ownership of two
     /// ref-counts.
@@ -185,7 +184,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
         match self.state().transition_to_running() {
             TransitionToRunning::Success => {
                 let header_ptr = self.header_ptr();
-                let wakerRef = waker_ref::<S>(&header_ptr);
+                let wakerRef = buildWakerRef::<S>(&header_ptr);
                 let context = Context::from_waker(&wakerRef);
 
                 if poll_future(self.core(), context) == Poll::Ready(()) {
@@ -194,12 +193,13 @@ impl<T: Future, S: Schedule> Harness<T, S> {
                 }
 
                 let transition_res = self.state().transition_to_idle();
+
                 if let TransitionToIdle::Cancelled = transition_res {
                     // The transition to idle failed because the task was cancelled during the poll.
                     cancel_task(self.core());
                 }
 
-                // Separated to reduce LLVM codegen
+                // separated to reduce LLVM codegen
                 fn transition_result_to_poll_future(result: TransitionToIdle) -> PollFuture {
                     match result {
                         TransitionToIdle::Ok => PollFuture::Done,
@@ -302,7 +302,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
         // The future has completed and its output has been written to the task
         // stage. We transition from running to complete.
 
-        let snapshot = self.state().transition_to_complete();
+        let snapshot = self.state().transition2Complete();
 
         // We catch panics here in case dropping the future or waking the
         // JoinHandle panics.
