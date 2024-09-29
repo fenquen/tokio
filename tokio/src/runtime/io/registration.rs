@@ -9,49 +9,49 @@ use std::io;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
 
-cfg_io_driver! {
-    /// Associates an I/O resource with the reactor instance that drives it.
+#[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))))]
+/// Associates an I/O resource with the reactor instance that drives it.
+///
+/// A registration represents an I/O resource registered with a Reactor such
+/// that it will receive task notifications on readiness. This is the lowest
+/// level API for integrating with a reactor.
+///
+/// The association between an I/O resource is made by calling
+/// [`new_with_interest_and_handle`].
+/// Once the association is established, it remains established until the
+/// registration instance is dropped.
+///
+/// A registration instance represents two separate readiness streams. One
+/// for the read readiness and one for write readiness. These streams are
+/// independent and can be consumed from separate tasks.
+///
+/// **Note**: while `Registration` is `Sync`, the caller must ensure that
+/// there are at most two tasks that use a registration instance
+/// concurrently. One task for [`poll_read_ready`] and one task for
+/// [`poll_write_ready`]. While violating this requirement is "safe" from a
+/// Rust memory safety point of view, it will result in unexpected behavior
+/// in the form of lost notifications and tasks hanging.
+///
+/// ## Platform-specific events
+///
+/// `Registration` also allows receiving platform-specific `mio::Ready`
+/// events. These events are included as part of the read readiness event
+/// stream. The write readiness event stream is only for `Ready::writable()`
+/// events.
+///
+/// [`new_with_interest_and_handle`]: method@Self::new_with_interest_and_handle
+/// [`poll_read_ready`]: method@Self::poll_read_ready`
+/// [`poll_write_ready`]: method@Self::poll_write_ready`
+#[derive(Debug)]
+pub(crate) struct Registration {
+    /// Handle to the associated runtime.
     ///
-    /// A registration represents an I/O resource registered with a Reactor such
-    /// that it will receive task notifications on readiness. This is the lowest
-    /// level API for integrating with a reactor.
-    ///
-    /// The association between an I/O resource is made by calling
-    /// [`new_with_interest_and_handle`].
-    /// Once the association is established, it remains established until the
-    /// registration instance is dropped.
-    ///
-    /// A registration instance represents two separate readiness streams. One
-    /// for the read readiness and one for write readiness. These streams are
-    /// independent and can be consumed from separate tasks.
-    ///
-    /// **Note**: while `Registration` is `Sync`, the caller must ensure that
-    /// there are at most two tasks that use a registration instance
-    /// concurrently. One task for [`poll_read_ready`] and one task for
-    /// [`poll_write_ready`]. While violating this requirement is "safe" from a
-    /// Rust memory safety point of view, it will result in unexpected behavior
-    /// in the form of lost notifications and tasks hanging.
-    ///
-    /// ## Platform-specific events
-    ///
-    /// `Registration` also allows receiving platform-specific `mio::Ready`
-    /// events. These events are included as part of the read readiness event
-    /// stream. The write readiness event stream is only for `Ready::writable()`
-    /// events.
-    ///
-    /// [`new_with_interest_and_handle`]: method@Self::new_with_interest_and_handle
-    /// [`poll_read_ready`]: method@Self::poll_read_ready`
-    /// [`poll_write_ready`]: method@Self::poll_write_ready`
-    #[derive(Debug)]
-    pub(crate) struct Registration {
-        /// Handle to the associated runtime.
-        ///
-        /// TODO: this can probably be moved into `ScheduledIo`.
-        handle: scheduler::SchedulerHandleEnum,
+    /// TODO: this can probably be moved into `ScheduledIo`.
+    schedulerHandleEnum: scheduler::SchedulerHandleEnum,
 
-        /// Reference to state stored by the driver.
-        shared: Arc<ScheduledIo>,
-    }
+    /// Reference to state stored by the driver.
+    scheduledIo: Arc<ScheduledIo>,
 }
 
 unsafe impl Send for Registration {}
@@ -70,14 +70,11 @@ impl Registration {
     /// - `Ok` if the registration happened successfully
     /// - `Err` if an error was encountered during registration
     #[track_caller]
-    pub(crate) fn new_with_interest_and_handle(
-        io: &mut impl Source,
-        interest: Interest,
-        handle: scheduler::SchedulerHandleEnum,
-    ) -> io::Result<Registration> {
-        let shared = handle.driver().io().add_source(io, interest)?;
-
-        Ok(Registration { handle, shared })
+    pub(crate) fn new_with_interest_and_handle(mioSource: &mut impl Source,
+                                               interest: Interest,
+                                               schedulerHandleEnum: scheduler::SchedulerHandleEnum) -> io::Result<Registration> {
+        let scheduledIo = schedulerHandleEnum.driver().io().registerSource(mioSource, interest)?;
+        Ok(Registration { schedulerHandleEnum, scheduledIo })
     }
 
     /// Deregisters the I/O resource from the reactor it is associated with.
@@ -97,11 +94,11 @@ impl Registration {
     ///
     /// `Err` is returned if an error is encountered.
     pub(crate) fn deregister(&mut self, io: &mut impl Source) -> io::Result<()> {
-        self.handle().deregister_source(&self.shared, io)
+        self.handle().deregister_source(&self.scheduledIo, io)
     }
 
     pub(crate) fn clear_readiness(&self, event: ReadyEvent) {
-        self.shared.clear_readiness(event);
+        self.scheduledIo.clear_readiness(event);
     }
 
     // Uses the poll path, requiring the caller to ensure mutual exclusion for
@@ -149,7 +146,7 @@ impl Registration {
         ready!(crate::trace::trace_leaf(cx));
         // Keep track of task budget
         let coop = ready!(crate::runtime::coop::poll_proceed(cx));
-        let ev = ready!(self.shared.poll_readiness(cx, direction));
+        let ev = ready!(self.scheduledIo.poll_readiness(cx, direction));
 
         if ev.is_shutdown {
             return Poll::Ready(Err(gone()));
@@ -185,7 +182,7 @@ impl Registration {
         interest: Interest,
         f: impl FnOnce() -> io::Result<R>,
     ) -> io::Result<R> {
-        let ev = self.shared.ready_event(interest);
+        let ev = self.scheduledIo.ready_event(interest);
 
         // Don't attempt the operation if the resource is not ready.
         if ev.ready.is_empty() {
@@ -202,7 +199,7 @@ impl Registration {
     }
 
     pub(crate) async fn readiness(&self, interest: Interest) -> io::Result<ReadyEvent> {
-        let ev = self.shared.readiness(interest).await;
+        let ev = self.scheduledIo.readiness(interest).await;
 
         if ev.is_shutdown {
             return Err(gone());
@@ -234,7 +231,7 @@ impl Registration {
     }
 
     fn handle(&self) -> &IODriverHandle {
-        self.handle.driver().io()
+        self.schedulerHandleEnum.driver().io()
     }
 }
 
@@ -247,7 +244,7 @@ impl Drop for Registration {
         // cycle would remain.
         //
         // See tokio-rs/tokio#3481 for more details.
-        self.shared.clear_wakers();
+        self.scheduledIo.clear_wakers();
     }
 }
 

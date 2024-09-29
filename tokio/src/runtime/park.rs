@@ -32,8 +32,7 @@ impl ParkThread {
     }
 
     pub(crate) fn park_timeout(&mut self, duration: Duration) {
-
-        // Wasm doesn't have threads, so just sleep.
+        // wasm doesn't have threads, so just sleep.
         #[cfg(not(target_family = "wasm"))]
         self.inner.park_timeout(duration);
         #[cfg(target_family = "wasm")]

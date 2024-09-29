@@ -105,16 +105,13 @@ struct Core {
 
     /// True if the worker is currently searching for more work.
     /// searching involves attempting to steal from other workers.
-    is_searching: bool,
+    searchingTask: bool,
 
     /// True if the scheduler is being shutdown
     is_shutdown: bool,
 
-    /// Parker
-    ///
-    /// Stored in an `Option` as the parker is added / removed to make the
-    /// borrow checker happy.
-    park: Option<Parker>,
+    /// Stored in an `Option` as the parker is added / removed to make the borrow checker happy
+    parker: Option<Parker>,
 
     /// Per-worker runtime stats
     stats: Stats,
@@ -180,6 +177,7 @@ pub(crate) struct MultiThreadThreadLocalContext {
 
     core: RefCell<Option<Box<Core>>>,
 
+    /// 对应 task::yield_now()
     /// Tasks to wake after resource drivers are polled. This is mostly to handle yielded tasks.
     pub(crate) defer: Defer,
 }
@@ -196,8 +194,7 @@ impl Launcher {
 }
 
 /// Running a task may consume the core. If the core is still available when
-/// running the task completes, it is returned. Otherwise, the worker will need
-/// to stop processing.
+/// running the task completes, it is returned. Otherwise, the worker will need to stop processing.
 type RunResult = Result<Box<Core>, ()>;
 
 /// A notified task handle
@@ -223,7 +220,7 @@ pub(super) fn create(workerCount: usize,
         let (steal, run_queue) = queue::local();
 
         let parker = parker.clone();
-        let unParker = parker.unpark();
+        let unParker = parker.getUnParker();
         let stats = Stats::new();
 
         cores.push(Box::new(Core {
@@ -231,9 +228,9 @@ pub(super) fn create(workerCount: usize,
             lifoSlot: None,
             lifoEnabled: !config.disable_lifo_slot,
             runQueue: run_queue,
-            is_searching: false,
+            searchingTask: false,
             is_shutdown: false,
-            park: Some(parker),
+            parker: Some(parker),
             checkGlobalQueueInterval: stats.tuned_global_queue_interval(&config),
             stats,
             rand: FastRand::from_seed(config.seed_generator.next_seed()),
@@ -363,7 +360,7 @@ pub(crate) fn block_in_place<F: FnOnce() -> R, R>(f: F) -> R {
         take_core = true;
 
         // The parker should be set here
-        assert!(core.park.is_some());
+        assert!(core.parker.is_some());
 
         // In order to block, the core must be sent to another thread for
         // execution.
@@ -479,12 +476,11 @@ impl MultiThreadThreadLocalContext {
                 // Found work, switch back to processing
                 core.stats.start_processing_scheduled_tasks();
                 core = self.run_task(notified, core)?;
-            } else {
-                // Wait for work
-                core = if !self.defer.is_empty() {
-                    self.park_timeout(core, Some(Duration::from_millis(0)))
-                } else {
+            } else { // Wait for work
+                core = if self.defer.is_empty() {
                     self.park(core)
+                } else {
+                    self.park_timeout(core, Some(Duration::from_millis(0)))
                 };
 
                 core.stats.start_processing_scheduled_tasks();
@@ -643,9 +639,8 @@ impl MultiThreadThreadLocalContext {
         self.assert_lifo_enabled_is_correct(&core);
 
         // Take the parker out of core
-        let mut park = core.park.take().expect("park missing");
-
-        // Store `core` in context
+        let mut park = core.parker.take().expect("park missing");
+        // core set到threadLocal
         *self.core.borrow_mut() = Some(core);
 
         // Park thread
@@ -657,11 +652,10 @@ impl MultiThreadThreadLocalContext {
 
         self.defer.wake();
 
-        // Remove `core` from context
+        // core threadLocal拿掉
         core = self.core.borrow_mut().take().expect("core missing");
-
         // Place `park` back in `core`
-        core.park = Some(park);
+        core.parker = Some(park);
 
         if core.should_notify_others() {
             self.worker.multiThreadSchedulerHandle.notify_parked_remote();
@@ -776,19 +770,19 @@ impl Core {
     }
 
     fn transition_to_searching(&mut self, worker: &Worker) -> bool {
-        if !self.is_searching {
-            self.is_searching = worker.multiThreadSchedulerHandle.workerSharedState.idle.transition_worker_to_searching();
+        if !self.searchingTask {
+            self.searchingTask = worker.multiThreadSchedulerHandle.workerSharedState.idle.transition_worker_to_searching();
         }
 
-        self.is_searching
+        self.searchingTask
     }
 
     fn transition_from_searching(&mut self, worker: &Worker) {
-        if !self.is_searching {
+        if !self.searchingTask {
             return;
         }
 
-        self.is_searching = false;
+        self.searchingTask = false;
         worker.multiThreadSchedulerHandle.transition_worker_from_searching();
     }
 
@@ -799,7 +793,7 @@ impl Core {
     fn should_notify_others(&self) -> bool {
         // If there are tasks available to steal, but this worker is not
         // looking for tasks to steal, notify another worker.
-        if self.is_searching {
+        if self.searchingTask {
             return false;
         }
         self.lifoSlot.is_some() as usize + self.runQueue.len() > 1
@@ -809,7 +803,7 @@ impl Core {
     ///
     /// Returns true if the transition happened, false if there is work to do first.
     fn transition_to_parked(&mut self, worker: &Worker) -> bool {
-        // Workers should not park if they have work to do
+        // they have work to do
         if self.has_tasks() {
             return false;
         }
@@ -820,12 +814,11 @@ impl Core {
         let is_last_searcher = worker.multiThreadSchedulerHandle.workerSharedState.idle.transition_worker_to_parked(
             &worker.multiThreadSchedulerHandle.workerSharedState,
             worker.index,
-            self.is_searching,
+            self.searchingTask,
         );
 
-        // The worker is no longer searching. Setting this is the local cache
-        // only.
-        self.is_searching = false;
+        // The worker is no longer searching. Setting this is the local cache only.
+        self.searchingTask = false;
 
         if is_last_searcher {
             worker.multiThreadSchedulerHandle.notify_if_work_pending();
@@ -834,7 +827,7 @@ impl Core {
         true
     }
 
-    /// Returns `true` if the transition happened.
+    /// Returns `true` if the transition success
     fn transition_from_parked(&mut self, worker: &Worker) -> bool {
         // If a task is in the lifo slot/run queue, then we must unpark regardless of being notified
         if self.has_tasks() {
@@ -842,7 +835,7 @@ impl Core {
             // state when the wake originates from another worker *or* a new task
             // is pushed. We do *not* want the worker to transition to "searching"
             // when it wakes when the I/O driver receives new events.
-            self.is_searching = !worker.multiThreadSchedulerHandle.workerSharedState.idle.unpark_worker_by_id(&worker.multiThreadSchedulerHandle.workerSharedState, worker.index);
+            self.searchingTask = !worker.multiThreadSchedulerHandle.workerSharedState.idle.unpark_worker_by_id(&worker.multiThreadSchedulerHandle.workerSharedState, worker.index);
             return true;
         }
 
@@ -851,7 +844,7 @@ impl Core {
         }
 
         // When unparked, the worker is in the searching state.
-        self.is_searching = true;
+        self.searchingTask = true;
         true
     }
 
@@ -876,7 +869,7 @@ impl Core {
     /// Shuts down the core.
     fn shutdown(&mut self, handle: &MultiThreadSchedulerHandle) {
         // Take the core
-        let mut park = self.park.take().expect("park missing");
+        let mut park = self.parker.take().expect("park missing");
 
         // Drain the queue
         while self.next_local_task().is_some() {}
@@ -919,7 +912,7 @@ impl MultiThreadSchedulerHandle {
     pub(super) fn scheduleTask(&self, task: Notified, is_yield: bool) {
         with_current(|multiThreadThreadLocalContext| {
             if let Some(multiThreadThreadLocalContext) = multiThreadThreadLocalContext {
-                // Make sure the task is part of the **current** scheduler.
+                // Make sure the task is part of the **current** scheduler
                 if self.ptr_eq(&multiThreadThreadLocalContext.worker.multiThreadSchedulerHandle) {
                     // And the current thread still holds a core
                     if let Some(core) = multiThreadThreadLocalContext.core.borrow_mut().as_mut() {
@@ -961,7 +954,7 @@ impl MultiThreadSchedulerHandle {
         // Only notify if not currently parked. If `park` is `None`, then the
         // scheduling is from a resource driver. As notifications often come in
         // batches, the notification is delayed until the park is complete.
-        if should_notify && core.park.is_some() {
+        if should_notify && core.parker.is_some() {
             self.notify_parked_remote();
         }
     }
@@ -992,8 +985,8 @@ impl MultiThreadSchedulerHandle {
     }
 
     fn notify_parked_remote(&self) {
-        if let Some(index) = self.workerSharedState.idle.worker_to_notify(&self.workerSharedState) {
-            self.workerSharedState.remotes[index].unParker.unpark(&self.driverHandle);
+        if let Some(workerToNotifyIndex) = self.workerSharedState.idle.getWorkerToNotify(&self.workerSharedState) {
+            self.workerSharedState.remotes[workerToNotifyIndex].unParker.unpark(&self.driverHandle);
         }
     }
 

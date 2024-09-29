@@ -19,7 +19,7 @@ use crate::loom::cell::UnsafeCell;
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::loom::sync::{Mutex, MutexGuard};
 use crate::util::linked_list::{self, LinkedList};
-use crate::util::WakeList;
+use crate::util::WakerList;
 
 use std::future::Future;
 use std::marker::PhantomPinned;
@@ -269,7 +269,7 @@ impl Semaphore {
     /// If `rem` exceeds the number of permits needed by the wait list, the
     /// remainder are assigned back to the semaphore.
     fn add_permits_locked(&self, mut rem: usize, waiters: MutexGuard<'_, Waitlist>) {
-        let mut wakers = WakeList::new();
+        let mut wakers = WakerList::new();
         let mut lock = Some(waiters);
         let mut is_empty = false;
         while rem > 0 {

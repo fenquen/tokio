@@ -50,8 +50,7 @@ where
 }
 
 /// Task operations that can be implemented without being generic over the
-/// scheduler or task. Only one version of these methods should exist in the
-/// final binary.
+/// scheduler or task. Only one version of these methods should exist in the final binary.
 impl RawTask {
     pub(super) fn drop_reference(self) {
         if self.state().ref_dec() {
@@ -78,20 +77,16 @@ impl RawTask {
                 // drops the task it was given.
                 self.schedule();
 
-                // Now that we have completed the call to schedule, we can
-                // release our ref-count.
+                // Now that we have completed the call to schedule, we can release our ref-count.
                 self.drop_reference();
             }
-            TransitionToNotifiedByVal::Dealloc => {
-                self.dealloc();
-            }
+            TransitionToNotifiedByVal::Dealloc => self.dealloc(),
             TransitionToNotifiedByVal::DoNothing => {}
         }
     }
 
     /// This call notifies the task. It will not consume any ref-counts, but the
-    /// caller should hold a ref-count.  This will create a new Notified and
-    /// submit it if necessary.
+    /// caller should hold a ref-count.  This will create a new Notified and submit it if necessary.
     pub(super) fn wake_by_ref(&self) {
         use super::state::TransitionToNotifiedByRef;
 
@@ -148,15 +143,14 @@ impl<T: Future, S: Schedule> Harness<T, S> {
     pub(super) fn poll(self) {
         // We pass our ref-count to `poll_inner`.
         match self.poll_inner() {
-            PollFuture::Notified => {
+            PollFuture::Notified => { // 将已经wake的task变idle
                 // The `poll_inner` call has given us two ref-counts back.
                 // We give one of them to a new task and call `yield_now`.
                 self.core().scheduler.yield_now(Notified(self.get_new_task()));
 
                 // The remaining ref-count is now dropped. We kept the extra
                 // ref-count until now to ensure that even if the `yield_now`
-                // call drops the provided task, the task isn't deallocated
-                // before after `yield_now` returns.
+                // call drops the provided task, the task isn't deallocated before after `yield_now` returns.
                 self.drop_reference();
             }
             PollFuture::Complete => self.complete(), // Poll::Ready 对应
@@ -167,49 +161,38 @@ impl<T: Future, S: Schedule> Harness<T, S> {
 
     /// Polls the task and cancel it if necessary. This takes ownership of a ref-count.
     ///
-    /// If the return value is Notified, the caller is given ownership of two
-    /// ref-counts.
+    /// If the return value is Notified, the caller is given ownership of two ref-counts.
     ///
     /// If the return value is Complete, the caller is given ownership of a
     /// single ref-count, which should be passed on to `complete`.
     ///
-    /// If the return value is `Dealloc`, then this call consumed the last
-    /// ref-count and the caller should call `dealloc`.
+    /// If the return value is `Dealloc`, then this call consumed the last ref-count and the caller should call `dealloc`.
     ///
-    /// Otherwise the ref-count is consumed and the caller should not access
-    /// `self` again.
+    /// Otherwise the ref-count is consumed and the caller should not access `self` again.
     fn poll_inner(&self) -> PollFuture {
         use super::state::{TransitionToIdle, TransitionToRunning};
 
-        match self.state().transition_to_running() {
+        match self.state().transition2Running() {
             TransitionToRunning::Success => {
                 let header_ptr = self.header_ptr();
                 let wakerRef = buildWakerRef::<S>(&header_ptr);
                 let context = Context::from_waker(&wakerRef);
 
+                // the future completed. Move on to complete the task.
                 if poll_future(self.core(), context) == Poll::Ready(()) {
-                    // The future completed. Move on to complete the task.
                     return PollFuture::Complete;
                 }
 
-                let transition_res = self.state().transition_to_idle();
-
-                if let TransitionToIdle::Cancelled = transition_res {
-                    // The transition to idle failed because the task was cancelled during the poll.
-                    cancel_task(self.core());
-                }
-
-                // separated to reduce LLVM codegen
-                fn transition_result_to_poll_future(result: TransitionToIdle) -> PollFuture {
-                    match result {
-                        TransitionToIdle::Ok => PollFuture::Done,
-                        TransitionToIdle::OkNotified => PollFuture::Notified,
-                        TransitionToIdle::OkDealloc => PollFuture::Dealloc,
-                        TransitionToIdle::Cancelled => PollFuture::Complete,
+                match self.state().transition2Idle() {
+                    TransitionToIdle::Ok => PollFuture::Done,
+                    TransitionToIdle::OkNotified => PollFuture::Notified,
+                    TransitionToIdle::OkDealloc => PollFuture::Dealloc,
+                    TransitionToIdle::Cancelled => {
+                        // the transition to idle failed because the task was cancelled during the poll
+                        cancel_task(self.core());
+                        PollFuture::Complete
                     }
                 }
-
-                transition_result_to_poll_future(transition_res)
             }
             TransitionToRunning::Cancelled => {
                 cancel_task(self.core());
@@ -241,8 +224,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
 
     pub(super) fn dealloc(self) {
         // Observe that we expect to have mutable access to these objects
-        // because we are going to drop them. This only matters when running
-        // under loom.
+        // because we are going to drop them. This only matters when running under loom
         self.trailer().waker.with_mut(|_| ());
         self.core().coreStage.with_mut(|_| ());
 
@@ -327,8 +309,6 @@ impl<T: Future, S: Schedule> Harness<T, S> {
         if let Some(f) = self.trailer().hooks.task_terminate_callback.as_ref() {
             let _ = panic::catch_unwind(panic::AssertUnwindSafe(|| {
                 f(&TaskMeta {
-                    #[cfg(tokio_unstable)]
-                    id: self.core().task_id,
                     _phantom: Default::default(),
                 })
             }));
@@ -366,8 +346,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
     /// returned Task to any method on `self` is unsound if dropping the Task
     /// could drop `self` before the call on `self` returned.
     fn get_new_task(&self) -> Task<S> {
-        // safety: The header is at the beginning of the cell, so this cast is
-        // safe.
+        // safety: The header is at the beginning of the cell, so this cast is safe
         unsafe { Task::from_raw(self.cell.cast()) }
     }
 }
@@ -395,10 +374,7 @@ fn can_read_output(header: &Header, trailer: &Trailer, waker: &Waker) -> bool {
 
             // Otherwise swap the stored waker with the provided waker by
             // following the rule 5 in task/mod.rs.
-            header
-                .state
-                .unset_waker()
-                .and_then(|snapshot| set_join_waker(header, trailer, waker.clone(), snapshot))
+            header.state.unset_waker().and_then(|snapshot| set_join_waker(header, trailer, waker.clone(), snapshot))
         } else {
             // If JOIN_WAKER is unset, then JoinHandle has mutable access to the
             // waker field per rule 2 in task/mod.rs; therefore, skip step (i)
@@ -416,12 +392,10 @@ fn can_read_output(header: &Header, trailer: &Trailer, waker: &Waker) -> bool {
     true
 }
 
-fn set_join_waker(
-    header: &Header,
-    trailer: &Trailer,
-    waker: Waker,
-    snapshot: Snapshot,
-) -> Result<Snapshot, Snapshot> {
+fn set_join_waker(header: &Header,
+                  trailer: &Trailer,
+                  waker: Waker,
+                  snapshot: Snapshot) -> Result<Snapshot, Snapshot> {
     assert!(snapshot.is_join_interested());
     assert!(!snapshot.is_join_waker_set());
 
@@ -446,6 +420,7 @@ fn set_join_waker(
 
 enum PollFuture {
     Complete,
+    /// 发生在transition2Idle时候发现已是notified了
     Notified,
     Done,
     Dealloc,

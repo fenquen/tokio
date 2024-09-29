@@ -28,7 +28,6 @@ use crate::runtime::driver;
 pub(crate) enum SchedulerHandleEnum {
     #[cfg(feature = "rt")]
     CurrentThread(Arc<current_thread::CurrentThreadSchedulerHandle>),
-
     #[cfg(feature = "rt-multi-thread")]
     MultiThread(Arc<multi_thread::MultiThreadSchedulerHandle>),
 }
@@ -36,13 +35,11 @@ pub(crate) enum SchedulerHandleEnum {
 #[cfg(feature = "rt")]
 pub(super) enum ThreadLocalContextEnum {
     CurrentThread(current_thread::Context),
-
     #[cfg(feature = "rt-multi-thread")]
     MultiThread(multi_thread::MultiThreadThreadLocalContext),
 }
 
 impl SchedulerHandleEnum {
-    #[cfg_attr(not(feature = "full"), allow(dead_code))]
     pub(crate) fn driver(&self) -> &driver::DriverHandle {
         match *self {
             #[cfg(feature = "rt")]
@@ -148,7 +145,10 @@ cfg_rt! {
         }
 
         pub(crate) fn defer(&self, waker: &Waker) {
-            match_flavor!(self, ThreadLocalContextEnum(context) => context.defer(waker));
+            match self {
+                ThreadLocalContextEnum::CurrentThread(context) => context. defer(waker),
+                #[cfg(feature = "rt-multi-thread")]
+                ThreadLocalContextEnum::MultiThread(context) => context. defer(waker),         }
         }
 
          #[cfg(feature = "rt-multi-thread")]

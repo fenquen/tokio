@@ -44,11 +44,7 @@ impl Pack {
 
 impl fmt::Debug for Pack {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            fmt,
-            "Pack {{ mask: {:b}, shift: {} }}",
-            self.mask, self.shift
-        )
+        write!(fmt, "Pack {{ mask: {:b}, shift: {} }}", self.mask, self.shift)
     }
 }
 

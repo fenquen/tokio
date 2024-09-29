@@ -13,10 +13,7 @@ const WRITE_CLOSED: usize = 0b0_1000;
 const PRIORITY: usize = 0b1_0000;
 const ERROR: usize = 0b10_0000;
 
-/// Describes the readiness state of an I/O resources.
-///
-/// `Ready` tracks which operation an I/O resource is ready to perform.
-#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
+/// 包含 高位的tick 和 低位的ready
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ready(usize);
 
@@ -98,119 +95,36 @@ impl Ready {
         ready
     }
 
-    /// Returns true if `Ready` is the empty set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(Ready::EMPTY.is_empty());
-    /// assert!(!Ready::READABLE.is_empty());
-    /// ```
     pub fn is_empty(self) -> bool {
         self == Ready::EMPTY
     }
 
-    /// Returns `true` if the value includes `readable`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(!Ready::EMPTY.is_readable());
-    /// assert!(Ready::READABLE.is_readable());
-    /// assert!(Ready::READ_CLOSED.is_readable());
-    /// assert!(!Ready::WRITABLE.is_readable());
-    /// ```
     pub fn is_readable(self) -> bool {
         self.contains(Ready::READABLE) || self.is_read_closed()
     }
 
-    /// Returns `true` if the value includes writable `readiness`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(!Ready::EMPTY.is_writable());
-    /// assert!(!Ready::READABLE.is_writable());
-    /// assert!(Ready::WRITABLE.is_writable());
-    /// assert!(Ready::WRITE_CLOSED.is_writable());
-    /// ```
     pub fn is_writable(self) -> bool {
         self.contains(Ready::WRITABLE) || self.is_write_closed()
     }
 
-    /// Returns `true` if the value includes read-closed `readiness`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(!Ready::EMPTY.is_read_closed());
-    /// assert!(!Ready::READABLE.is_read_closed());
-    /// assert!(Ready::READ_CLOSED.is_read_closed());
-    /// ```
     pub fn is_read_closed(self) -> bool {
         self.contains(Ready::READ_CLOSED)
     }
 
-    /// Returns `true` if the value includes write-closed `readiness`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(!Ready::EMPTY.is_write_closed());
-    /// assert!(!Ready::WRITABLE.is_write_closed());
-    /// assert!(Ready::WRITE_CLOSED.is_write_closed());
-    /// ```
     pub fn is_write_closed(self) -> bool {
         self.contains(Ready::WRITE_CLOSED)
     }
 
-    /// Returns `true` if the value includes priority `readiness`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(!Ready::EMPTY.is_priority());
-    /// assert!(!Ready::WRITABLE.is_priority());
-    /// assert!(Ready::PRIORITY.is_priority());
-    /// ```
     #[cfg(any(target_os = "linux", target_os = "android"))]
     #[cfg_attr(docsrs, doc(cfg(any(target_os = "linux", target_os = "android"))))]
     pub fn is_priority(self) -> bool {
         self.contains(Ready::PRIORITY)
     }
 
-    /// Returns `true` if the value includes error `readiness`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::Ready;
-    ///
-    /// assert!(!Ready::EMPTY.is_error());
-    /// assert!(!Ready::WRITABLE.is_error());
-    /// assert!(Ready::ERROR.is_error());
-    /// ```
     pub fn is_error(self) -> bool {
         self.contains(Ready::ERROR)
     }
 
-    /// Returns true if `self` is a superset of `other`.
-    ///
-    /// `other` may represent more than one readiness operations, in which case
-    /// the function only returns true if `self` contains all readiness
-    /// specified in `other`.
     pub(crate) fn contains<T: Into<Self>>(self, other: T) -> bool {
         let other = other.into();
         (self & other) == other

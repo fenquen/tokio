@@ -7,8 +7,7 @@ impl IODriverHandle {
         &self,
         receiver: &mut mio::net::UnixStream,
     ) -> io::Result<()> {
-        self.mioRegistry
-            .register(receiver, TOKEN_SIGNAL, mio::Interest::READABLE)?;
+        self.mioRegistry.register(receiver, TOKEN_SIGNAL, mio::Interest::READABLE)?;
         Ok(())
     }
 }

@@ -18,7 +18,7 @@ use std::time::Duration;
 #[derive(Debug)]
 pub(crate) struct SignalDriver {
     /// Thread parker. The `Driver` park implementation delegates to this.
-    ioDriver: io::IODriver,
+    pub ioDriver: io::IODriver,
 
     /// A pipe for receiving wake events from the signal handler
     receiver: UnixStream,
@@ -85,28 +85,17 @@ impl SignalDriver {
         }
     }
 
-    pub(crate) fn park(&mut self, handle: &driver::DriverHandle) {
-        self.ioDriver.park(handle);
-        self.process();
-    }
-
-    pub(crate) fn park_timeout(&mut self, handle: &driver::DriverHandle, duration: Duration) {
-        self.ioDriver.park_timeout(handle, duration);
-        self.process();
-    }
-
     pub(crate) fn shutdown(&mut self, handle: &driver::DriverHandle) {
         self.ioDriver.shutdown(handle);
     }
 
-    fn process(&mut self) {
+    pub fn process(&mut self) {
         // If the signal pipe has not received a readiness event, then there is nothing else to do.
         if !self.ioDriver.consume_signal_ready() {
             return;
         }
 
-        // Drain the pipe completely so we can receive a new readiness event
-        // if another signal has come in.
+        // Drain the pipe completely so we can receive a new readiness event if another signal has come in.
         let mut buf = [0; 128];
         #[allow(clippy::unused_io_amount)]
         loop {

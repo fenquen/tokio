@@ -35,7 +35,6 @@ use std::task::{ready, Context, Poll};
 /// which order the runtime polls your tasks in.
 ///
 /// [`tokio::select!`]: macro@crate::select
-#[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
 pub async fn yield_now() {
     /// Yield implementation
     struct YieldNow {

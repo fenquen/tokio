@@ -11,7 +11,9 @@ use crate::runtime::park::{ParkThread, UnparkThread};
 
 use std::io;
 use std::time::Duration;
+use crate::runtime::io::IODriverHandle;
 use crate::runtime::process::ProcessDriver;
+use crate::runtime::signal::SignalDriverHandle;
 use crate::runtime::time::TimeDriverHandle;
 
 #[derive(Debug)]
@@ -25,7 +27,7 @@ pub(crate) struct DriverHandle {
     pub(crate) ioHandleEnum: IOHandleEnum,
 
     /// Signal driver handle
-    pub(crate) signalDriverHandle: Option<crate::runtime::signal::SignalDriverHandle>,
+    pub(crate) signalDriverHandle: Option<SignalDriverHandle>,
 
     /// Time driver handle
     pub(crate) timeDriverHandle: Option<TimeDriverHandle>,
@@ -63,16 +65,12 @@ impl Driver {
         ))
     }
 
-    pub(crate) fn is_enabled(&self) -> bool {
-        self.timeDriver.is_enabled()
-    }
-
     pub(crate) fn park(&mut self, handle: &DriverHandle) {
-        self.timeDriver.park(handle);
+        self.timeDriver.park_timeout(handle, None);
     }
 
     pub(crate) fn park_timeout(&mut self, handle: &DriverHandle, duration: Duration) {
-        self.timeDriver.park_timeout(handle, duration);
+        self.timeDriver.park_timeout(handle, Some(duration));
     }
 
     pub(crate) fn shutdown(&mut self, handle: &DriverHandle) {
@@ -82,17 +80,12 @@ impl Driver {
 
 impl DriverHandle {
     pub(crate) fn unpark(&self) {
-        #[cfg(feature = "time")]
-        if let Some(timeDriverHandle) = &self.timeDriverHandle {
-            timeDriverHandle.unpark();
-        }
-
         self.ioHandleEnum.unpark();
     }
 
     cfg_io_driver! {
         #[track_caller]
-        pub(crate) fn io(&self) -> &crate::runtime::io::IODriverHandle {
+        pub(crate) fn io(&self) -> &IODriverHandle {
             self.ioHandleEnum.as_ref().expect("A Tokio 1.x context was found, but IO is disabled. Call `enable_io` on the runtime builder to enable IO.")
         }
     }
@@ -129,12 +122,12 @@ pub(crate) enum IoStackEnum {
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal")))]
 #[derive(Debug)]
 pub(crate) enum IOHandleEnum {
-    Enabled(crate::runtime::io::IODriverHandle),
+    Enabled(IODriverHandle),
     Disabled(UnparkThread),
 }
 
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal")))]
-fn create_io_stack(enableIO: bool, eventCount: usize) -> io::Result<(IoStackEnum, IOHandleEnum, Option<crate::runtime::signal::SignalDriverHandle>)> {
+fn create_io_stack(enableIO: bool, eventCount: usize) -> io::Result<(IoStackEnum, IOHandleEnum, Option<SignalDriverHandle>)> {
     let ret = if enableIO {
         let (ioDriver, ioDriverHandle) = crate::runtime::io::IODriver::new(eventCount)?;
 
@@ -161,16 +154,16 @@ impl IoStackEnum {
         }
     }
 
-    pub(crate) fn park(&mut self, handle: &DriverHandle) {
+    pub(crate) fn park(&mut self, driverHandle: &DriverHandle) {
         match self {
-            IoStackEnum::Enabled(v) => v.park(handle),
-            IoStackEnum::Disabled(v) => v.park(),
+            IoStackEnum::Enabled(processDriver) => processDriver.park_timeout(driverHandle, None),
+            IoStackEnum::Disabled(parkThread) => parkThread.park(),
         }
     }
 
     pub(crate) fn park_timeout(&mut self, driverHandle: &DriverHandle, duration: Duration) {
         match self {
-            IoStackEnum::Enabled(processDriver) => processDriver.park_timeout(driverHandle, duration),
+            IoStackEnum::Enabled(processDriver) => processDriver.park_timeout(driverHandle, Some(duration)),
             IoStackEnum::Disabled(parkThread) => parkThread.park_timeout(duration),
         }
     }
@@ -187,12 +180,12 @@ impl IoStackEnum {
 impl IOHandleEnum {
     pub(crate) fn unpark(&self) {
         match self {
-            IOHandleEnum::Enabled(handle) => handle.unpark(),
+            IOHandleEnum::Enabled(ioDriverHandle) => ioDriverHandle.unpark(),
             IOHandleEnum::Disabled(handle) => handle.unpark(),
         }
     }
 
-    pub(crate) fn as_ref(&self) -> Option<&crate::runtime::io::IODriverHandle> {
+    pub(crate) fn as_ref(&self) -> Option<&IODriverHandle> {
         match self {
             IOHandleEnum::Enabled(v) => Some(v),
             IOHandleEnum::Disabled(..) => None,
@@ -279,65 +272,66 @@ cfg_not_process_driver! {
 
 // ===== time driver =====
 
-cfg_time! {
-    #[derive(Debug)]
-    pub(crate) enum TimeDriver {
-        Enabled {driver: crate::runtime::time::TimeDriver},
-        Disabled(IoStackEnum),
+#[cfg(feature = "time")]
+#[derive(Debug)]
+pub(crate) enum TimeDriver {
+    Enabled { driver: crate::runtime::time::TimeDriver },
+    Disabled(IoStackEnum),
+}
+
+#[cfg(feature = "time")]
+pub(crate) type Clock = crate::time::Clock;
+#[cfg(feature = "time")]
+pub(crate) type TimeHandle = Option<TimeDriverHandle>;
+
+#[cfg(feature = "time")]
+fn create_clock(enable_pausing: bool, start_paused: bool) -> Clock {
+    Clock::new(enable_pausing, start_paused)
+}
+
+#[cfg(feature = "time")]
+fn create_time_driver(enable: bool,
+                      io_stack: IoStackEnum,
+                      clock: &Clock,
+                      workers: usize) -> (TimeDriver, TimeHandle) {
+    if enable {
+        let (driver, handle) = crate::runtime::time::TimeDriver::new(io_stack, clock, workers as u32);
+        (TimeDriver::Enabled { driver }, Some(handle))
+    } else {
+        (TimeDriver::Disabled(io_stack), None)
+    }
+}
+
+#[cfg(feature = "time")]
+impl TimeDriver {
+    pub(crate) fn is_enabled(&self) -> bool {
+        match self {
+            TimeDriver::Enabled { .. } => true,
+            TimeDriver::Disabled(inner) => inner.is_enabled(),
+        }
     }
 
-    pub(crate) type Clock = crate::time::Clock;
-    pub(crate) type TimeHandle = Option<TimeDriverHandle>;
-
-    fn create_clock(enable_pausing: bool, start_paused: bool) -> Clock {
-        Clock::new(enable_pausing, start_paused)
-    }
-
-    fn create_time_driver(
-        enable: bool,
-        io_stack: IoStackEnum,
-        clock: &Clock,
-        workers: usize,
-    ) -> (TimeDriver, TimeHandle) {
-        if enable {
-            let (driver, handle) = crate::runtime::time::TimeDriver::new(io_stack, clock, workers as u32);
-
-            (TimeDriver::Enabled { driver }, Some(handle))
-        } else {
-            (TimeDriver::Disabled(io_stack), None)
+    pub(crate) fn park_timeout(&mut self, driverHandle: &DriverHandle, duration: Option<Duration>) {
+        match self {
+            TimeDriver::Enabled { driver, .. } => driver.park_internal(driverHandle, duration),
+            TimeDriver::Disabled(ioStackEnum) => {
+                if let Some(duration) = duration {
+                    ioStackEnum.park_timeout(driverHandle, duration);
+                } else {
+                    ioStackEnum.park(driverHandle);
+                }
+            }
         }
     }
 
-    impl TimeDriver {
-        pub(crate) fn is_enabled(&self) -> bool {
-            match self {
-                TimeDriver::Enabled { .. } => true,
-                TimeDriver::Disabled(inner) => inner.is_enabled(),
-            }
-        }
-
-        pub(crate) fn park(&mut self, handle: &DriverHandle) {
-            match self {
-                TimeDriver::Enabled { driver, .. } => driver.park(handle),
-                TimeDriver::Disabled(v) => v.park(handle),
-            }
-        }
-
-        pub(crate) fn park_timeout(&mut self, handle: &DriverHandle, duration: Duration) {
-            match self {
-                TimeDriver::Enabled { driver } => driver.park_timeout(handle, duration),
-                TimeDriver::Disabled(v) => v.park_timeout(handle, duration),
-            }
-        }
-
-        pub(crate) fn shutdown(&mut self, handle: &DriverHandle) {
-            match self {
-                TimeDriver::Enabled { driver } => driver.shutdown(handle),
-                TimeDriver::Disabled(v) => v.shutdown(handle),
-            }
+    pub(crate) fn shutdown(&mut self, handle: &DriverHandle) {
+        match self {
+            TimeDriver::Enabled { driver } => driver.shutdown(handle),
+            TimeDriver::Disabled(v) => v.shutdown(handle),
         }
     }
 }
+
 
 cfg_not_time! {
     type TimeDriver = IoStackEnum;

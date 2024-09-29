@@ -1,8 +1,8 @@
 use crate::future::Future;
 use crate::loom::sync::Arc;
-use crate::runtime::scheduler::multi_thread::worker;
+use crate::runtime::scheduler::multi_thread::worker::WorkerSharedState;
 use crate::runtime::{
-    blocking, driver,
+    blocking, driver::DriverHandle,
     task::{self, JoinHandle},
     TaskHooks, TaskMeta,
 };
@@ -14,10 +14,10 @@ mod metrics;
 
 pub(crate) struct MultiThreadSchedulerHandle {
     /// Task spawner
-    pub(super) workerSharedState: worker::WorkerSharedState,
+    pub(super) workerSharedState: WorkerSharedState,
 
     /// Resource driver handles
-    pub(crate) driverHandle: driver::DriverHandle,
+    pub(crate) driverHandle: DriverHandle,
 
     /// Blocking pool spawner
     pub(crate) blockingSpawner: blocking::Spawner,

@@ -277,8 +277,8 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
     }
 
     /// Polling the task resulted in a panic. Should the runtime shutdown?
+    /// By default, do nothing. This maintains the 1.0 behavior.
     fn unhandled_panic(&self) {
-        // By default, do nothing. This maintains the 1.0 behavior.
     }
 }
 
@@ -289,9 +289,7 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
 /// Currently only blocking tasks use this method.
 #[cfg(feature = "rt")]
 #[cfg_attr(docsrs, doc(cfg(feature = "rt")))]
-pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Schedule>(task: T,
-                                                                                       scheduler: S,
-                                                                                       taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>) {
+pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Schedule>(task: T, scheduler: S, taskId: Id) -> (UnownedTask<S>, JoinHandle<T::Output>) {
     let (task, notified, join) = newTask(task, scheduler, taskId);
 
     // This transfers the ref-count of (task and notified) into an UnownedTask.
@@ -311,9 +309,7 @@ pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Sch
 /// created. The first task reference is usually put into an `OwnedTasks`
 /// immediately. The Notified is sent to the scheduler as an ordinary notification.
 #[cfg(feature = "rt")]
-fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T,
-                                                              scheduler: S,
-                                                              taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>) {
+fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>) {
     let rawTask = RawTask::new::<T, S>(future, scheduler, taskId);
 
     let task = Task {

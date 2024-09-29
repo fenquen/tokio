@@ -9,7 +9,7 @@ use crate::loom::cell::UnsafeCell;
 use crate::loom::sync::atomic::AtomicUsize;
 use crate::loom::sync::Mutex;
 use crate::util::linked_list::{self, GuardedLinkedList, LinkedList};
-use crate::util::WakeList;
+use crate::util::WakerList;
 
 use std::future::Future;
 use std::marker::PhantomPinned;
@@ -693,7 +693,7 @@ impl Notify {
         //   guard node after this function returns / panics.
         let mut list = NotifyWaitersList::new(std::mem::take(&mut *waiters), guard.as_ref(), self);
 
-        let mut wakers = WakeList::new();
+        let mut wakers = WakerList::new();
         'outer: loop {
             while wakers.can_push() {
                 match list.pop_back_locked(&mut waiters) {

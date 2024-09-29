@@ -65,8 +65,7 @@ impl Stats {
     }
 
     pub(crate) fn end_processing_scheduled_tasks(&mut self) {
-
-        // Update the EWMA task poll time
+        // update the EWMA task poll time
         if self.tasks_polled_in_batch > 0 {
             let now = Instant::now();
 

@@ -234,10 +234,7 @@ impl Builder {
     }
 
     /// Sets a function used to generate the name of threads spawned by the `Runtime`'s thread pool.
-    pub fn thread_name_fn<F>(&mut self, f: F) -> &mut Self
-    where
-        F: Fn() -> String + Send + Sync + 'static,
-    {
+    pub fn thread_name_fn<F: Fn() -> String + Send + Sync + 'static>(&mut self, f: F) -> &mut Self {
         self.thread_name = std::sync::Arc::new(f);
         self
     }
@@ -248,53 +245,14 @@ impl Builder {
         self
     }
 
-    /// Executes function `f` after each thread is started but before it starts
-    /// doing work.
-    ///
-    /// This is intended for bookkeeping and monitoring use cases.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use tokio::runtime;
-    /// # pub fn main() {
-    /// let runtime = runtime::Builder::new_multi_thread()
-    ///     .on_thread_start(|| {
-    ///         println!("thread started");
-    ///     })
-    ///     .build();
-    /// # }
-    /// ```
     #[cfg(not(loom))]
-    pub fn on_thread_start<F>(&mut self, f: F) -> &mut Self
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
+    pub fn on_thread_start<F: Fn() + Send + Sync + 'static>(&mut self, f: F) -> &mut Self {
         self.after_start = Some(std::sync::Arc::new(f));
         self
     }
 
-    /// Executes function `f` before each thread stops.
-    ///
-    /// This is intended for bookkeeping and monitoring use cases.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use tokio::runtime;
-    /// # pub fn main() {
-    /// let runtime = runtime::Builder::new_multi_thread()
-    ///     .on_thread_stop(|| {
-    ///         println!("thread stopping");
-    ///     })
-    ///     .build();
-    /// # }
-    /// ```
     #[cfg(not(loom))]
-    pub fn on_thread_stop<F>(&mut self, f: F) -> &mut Self
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
+    pub fn on_thread_stop<F: Fn() + Send + Sync + 'static>(&mut self, f: F) -> &mut Self {
         self.before_stop = Some(std::sync::Arc::new(f));
         self
     }
@@ -369,10 +327,7 @@ impl Builder {
     /// # }
     /// ```
     #[cfg(not(loom))]
-    pub fn on_thread_park<F>(&mut self, f: F) -> &mut Self
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
+    pub fn on_thread_park<F: Fn() + Send + Sync + 'static>(&mut self, f: F) -> &mut Self {
         self.before_park = Some(std::sync::Arc::new(f));
         self
     }
@@ -404,29 +359,11 @@ impl Builder {
     /// # }
     /// ```
     #[cfg(not(loom))]
-    pub fn on_thread_unpark<F>(&mut self, f: F) -> &mut Self
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
+    pub fn on_thread_unpark<F: Fn() + Send + Sync + 'static>(&mut self, f: F) -> &mut Self {
         self.after_unpark = Some(std::sync::Arc::new(f));
         self
     }
 
-    /// Creates the configured `Runtime`.
-    ///
-    /// The returned `Runtime` instance is ready to spawn tasks.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::Builder;
-    ///
-    /// let rt  = Builder::new_multi_thread().build().unwrap();
-    ///
-    /// rt.block_on(async {
-    ///     println!("Hello from the Tokio runtime");
-    /// });
-    /// ```
     pub fn build(&mut self) -> io::Result<Runtime> {
         match &self.kind {
             Kind::CurrentThread => self.build_current_thread_runtime(),
@@ -540,7 +477,7 @@ impl Builder {
         );
 
         let handle = RuntimeHandle {
-            schedulerHandleEnum: scheduler::SchedulerHandleEnum::CurrentThread(handle),
+            schedulerHandleEnum: SchedulerHandleEnum::CurrentThread(handle),
         };
 
         Ok(Runtime::from_parts(
@@ -549,14 +486,9 @@ impl Builder {
             blocking_pool,
         ))
     }
-
 }
 
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "net", all(unix, feature = "process"), all(
-    unix,
-    feature = "signal"
-), ))))]
 impl Builder {
     /// Enables the I/O driver.
     pub fn enable_io(&mut self) -> &mut Self {
@@ -581,7 +513,6 @@ impl Builder {
 }
 
 #[cfg(feature = "rt-multi-thread")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
 impl Builder {
     fn build_threaded_runtime(&mut self) -> io::Result<Runtime> {
         use crate::loom::sys::num_cpus;

@@ -34,7 +34,7 @@ mod wake_list;
     feature = "signal",
     feature = "time",
 ))]
-pub(crate) use wake_list::WakeList;
+pub(crate) use wake_list::WakerList;
 
 #[cfg(any(
     feature = "fs",

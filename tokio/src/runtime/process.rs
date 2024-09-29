@@ -3,6 +3,7 @@ use crate::runtime::driver;
 use crate::runtime::signal::{SignalDriver, SignalDriverHandle};
 
 use std::time::Duration;
+use crate::runtime::driver::DriverHandle;
 
 /// Responsible for cleaning up orphaned child processes on Unix platforms.
 #[derive(Debug)]
@@ -22,13 +23,9 @@ impl ProcessDriver {
         }
     }
 
-    pub(crate) fn park(&mut self, handle: &driver::DriverHandle) {
-        self.signalDriver.park(handle);
-        GlobalOrphanQueue::reap_orphans(&self.signalDriverHandle);
-    }
-
-    pub(crate) fn park_timeout(&mut self, driverHandle: &driver::DriverHandle, duration: Duration) {
-        self.signalDriver.park_timeout(driverHandle, duration);
+    pub(crate) fn park_timeout(&mut self, driverHandle: &DriverHandle, duration: Option<Duration>) {
+        self.signalDriver.ioDriver.turn(driverHandle.io(), duration);
+        self.signalDriver.process();
         GlobalOrphanQueue::reap_orphans(&self.signalDriverHandle);
     }
 

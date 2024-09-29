@@ -13,15 +13,77 @@ use std::time::Duration;
 #[cfg(loom)]
 use crate::runtime::park::CURRENT_THREAD_PARK_COUNT;
 
+const EMPTY: usize = 0;
+const PARKED_CONDVAR: usize = 1;
+const PARKED_DRIVER: usize = 2;
+const NOTIFIED: usize = 3;
+
 pub(crate) struct Parker {
-    inner: Arc<Inner>,
+    parkerUnParkerInner: Arc<ParkerUnParkerInner>,
+}
+
+impl Parker {
+    pub(crate) fn new(driver: Driver) -> Parker {
+        Parker {
+            parkerUnParkerInner: Arc::new(ParkerUnParkerInner {
+                state: AtomicUsize::new(EMPTY),
+                mutex: Mutex::new(()),
+                condvar: Condvar::new(),
+                shared: Arc::new(Shared {
+                    driver: TryLock::new(driver),
+                }),
+            }),
+        }
+    }
+
+    pub(crate) fn getUnParker(&self) -> UnParker {
+        UnParker {
+            parkerUnParkerInner: self.parkerUnParkerInner.clone(),
+        }
+    }
+
+    pub(crate) fn park(&mut self, driverHandle: &driver::DriverHandle) {
+        self.parkerUnParkerInner.park(driverHandle);
+    }
+
+    pub(crate) fn park_timeout(&mut self, handle: &driver::DriverHandle, duration: Duration) {
+        // Only parking with zero is supported...
+        assert_eq!(duration, Duration::from_millis(0));
+
+        if let Some(mut driver) = self.parkerUnParkerInner.shared.driver.try_lock() {
+            driver.park_timeout(handle, duration);
+        }
+    }
+
+    pub(crate) fn shutdown(&mut self, handle: &driver::DriverHandle) {
+        self.parkerUnParkerInner.shutdown(handle);
+    }
+}
+
+impl Clone for Parker {
+    fn clone(&self) -> Parker {
+        Parker {
+            parkerUnParkerInner: Arc::new(ParkerUnParkerInner {
+                state: AtomicUsize::new(EMPTY),
+                mutex: Mutex::new(()),
+                condvar: Condvar::new(),
+                shared: self.parkerUnParkerInner.shared.clone(),
+            }),
+        }
+    }
 }
 
 pub(crate) struct UnParker {
-    inner: Arc<Inner>,
+    parkerUnParkerInner: Arc<ParkerUnParkerInner>,
 }
 
-struct Inner {
+impl UnParker {
+    pub(crate) fn unpark(&self, driverHandle: &driver::DriverHandle) {
+        self.parkerUnParkerInner.unpark(driverHandle);
+    }
+}
+
+struct ParkerUnParkerInner {
     /// Avoids entering the park if possible
     state: AtomicUsize,
 
@@ -35,86 +97,16 @@ struct Inner {
     shared: Arc<Shared>,
 }
 
-const EMPTY: usize = 0;
-const PARKED_CONDVAR: usize = 1;
-const PARKED_DRIVER: usize = 2;
-const NOTIFIED: usize = 3;
-
 /// Shared across multiple Parker handles
 struct Shared {
     /// Shared driver. Only one thread at a time can use this
     driver: TryLock<Driver>,
 }
 
-impl Parker {
-    pub(crate) fn new(driver: Driver) -> Parker {
-        Parker {
-            inner: Arc::new(Inner {
-                state: AtomicUsize::new(EMPTY),
-                mutex: Mutex::new(()),
-                condvar: Condvar::new(),
-                shared: Arc::new(Shared {
-                    driver: TryLock::new(driver),
-                }),
-            }),
-        }
-    }
-
-    pub(crate) fn unpark(&self) -> UnParker {
-        UnParker {
-            inner: self.inner.clone(),
-        }
-    }
-
-    pub(crate) fn park(&mut self, handle: &driver::DriverHandle) {
-        self.inner.park(handle);
-    }
-
-    pub(crate) fn park_timeout(&mut self, handle: &driver::DriverHandle, duration: Duration) {
-        // Only parking with zero is supported...
-        assert_eq!(duration, Duration::from_millis(0));
-
-        if let Some(mut driver) = self.inner.shared.driver.try_lock() {
-            driver.park_timeout(handle, duration);
-        } else {
-            // https://github.com/tokio-rs/tokio/issues/6536
-            // Hacky, but it's just for loom tests. The counter gets incremented during
-            // `park_timeout`, but we still have to increment the counter if we can't acquire the
-            // lock.
-            #[cfg(loom)]
-            CURRENT_THREAD_PARK_COUNT.with(|count| count.fetch_add(1, SeqCst));
-        }
-    }
-
-    pub(crate) fn shutdown(&mut self, handle: &driver::DriverHandle) {
-        self.inner.shutdown(handle);
-    }
-}
-
-impl Clone for Parker {
-    fn clone(&self) -> Parker {
-        Parker {
-            inner: Arc::new(Inner {
-                state: AtomicUsize::new(EMPTY),
-                mutex: Mutex::new(()),
-                condvar: Condvar::new(),
-                shared: self.inner.shared.clone(),
-            }),
-        }
-    }
-}
-
-impl UnParker {
-    pub(crate) fn unpark(&self, driverHandle: &driver::DriverHandle) {
-        self.inner.unpark(driverHandle);
-    }
-}
-
-impl Inner {
+impl ParkerUnParkerInner {
     /// Parks the current thread for at most `dur`.
     fn park(&self, handle: &driver::DriverHandle) {
-        // If we were previously notified then we consume this notification and
-        // return quickly.
+        // If we were previously notified then we consume this notification and return quickly
         if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
             return;
         }
@@ -159,7 +151,7 @@ impl Inner {
         }
     }
 
-    fn park_driver(&self, driver: &mut Driver, handle: &driver::DriverHandle) {
+    fn park_driver(&self, driver: &mut Driver, driverHandle: &driver::DriverHandle) {
         match self.state.compare_exchange(EMPTY, PARKED_DRIVER, SeqCst, SeqCst) {
             Ok(_) => {}
             Err(NOTIFIED) => {
@@ -177,7 +169,7 @@ impl Inner {
             Err(actual) => panic!("inconsistent park state; actual = {}", actual),
         }
 
-        driver.park(handle);
+        driver.park(driverHandle);
 
         match self.state.swap(EMPTY, SeqCst) {
             NOTIFIED => {}      // got a notification, hurray!

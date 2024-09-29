@@ -103,8 +103,8 @@ impl State {
 
     /// Attempts to transition the lifecycle to `Running`.
     /// This sets the notified bit to false so notifications during the poll can be detected.
-    pub(super) fn transition_to_running(&self) -> TransitionToRunning {
-        self.fetch_update_action(|mut currentValue| {
+    pub(super) fn transition2Running(&self) -> TransitionToRunning {
+        self.fetchUpdateAction(|mut currentValue| {
             let action;
             assert!(currentValue.is_notified());
 
@@ -137,8 +137,8 @@ impl State {
     /// Transitions the task from `Running` -> `Idle`.
     ///
     /// The transition to `Idle` fails if the task has been flagged to be cancelled
-    pub(super) fn transition_to_idle(&self) -> TransitionToIdle {
-        self.fetch_update_action(|currentValue| {
+    pub(super) fn transition2Idle(&self) -> TransitionToIdle {
+        self.fetchUpdateAction(|currentValue| {
             assert!(currentValue.is_running());
 
             if currentValue.is_cancelled() {
@@ -146,25 +146,26 @@ impl State {
             }
 
             let mut currentValue = currentValue;
-            let action;
+
             currentValue.unset_running();
 
-            if currentValue.is_notified() {
-                // The caller will schedule a new notification, so we create a new ref-count for the notification.
-                // Our own ref-count is kept for now, and the caller will drop it shortly.
-                currentValue.ref_inc();
+            let action =
+                if currentValue.is_notified() {
+                    // The caller will schedule a new notification, so we create a new ref-count for the notification.
+                    // Our own ref-count is kept for now, and the caller will drop it shortly.
+                    currentValue.ref_inc();
 
-                action = TransitionToIdle::OkNotified;
-            } else {
-                // Polling the future consumes the ref-count of the Notified.
-                currentValue.ref_dec();
-
-                if currentValue.ref_count() == 0 {
-                    action = TransitionToIdle::OkDealloc;
+                    TransitionToIdle::OkNotified
                 } else {
-                    action = TransitionToIdle::Ok;
-                }
-            }
+                    // Polling the future consumes the ref-count of the Notified.
+                    currentValue.ref_dec();
+
+                    if currentValue.ref_count() == 0 {
+                        TransitionToIdle::OkDealloc
+                    } else {
+                        TransitionToIdle::Ok
+                    }
+                };
 
             (action, Some(currentValue))
         })
@@ -198,7 +199,7 @@ impl State {
     /// If a task needs to be submitted, the ref-count is incremented for the
     /// new Notified.
     pub(super) fn transition_to_notified_by_val(&self) -> TransitionToNotifiedByVal {
-        self.fetch_update_action(|mut snapshot| {
+        self.fetchUpdateAction(|mut snapshot| {
             let action;
 
             if snapshot.is_running() {
@@ -236,7 +237,7 @@ impl State {
 
     /// Transitions the state to `NOTIFIED`.
     pub(super) fn transition_to_notified_by_ref(&self) -> TransitionToNotifiedByRef {
-        self.fetch_update_action(|mut snapshot| {
+        self.fetchUpdateAction(|mut snapshot| {
             if snapshot.is_complete() || snapshot.is_notified() {
                 // There is nothing to do in this case.
                 (TransitionToNotifiedByRef::DoNothing, None)
@@ -261,7 +262,7 @@ impl State {
     /// Returns `true` if the task needs to be submitted to the pool for
     /// execution.
     pub(super) fn transition_to_notified_and_cancel(&self) -> bool {
-        self.fetch_update_action(|mut snapshot| {
+        self.fetchUpdateAction(|mut snapshot| {
             if snapshot.is_cancelled() || snapshot.is_complete() {
                 // Aborts to completed or cancelled tasks are no-ops.
                 (false, None)
@@ -426,7 +427,7 @@ impl State {
         prev.ref_count() == 2
     }
 
-    fn fetch_update_action<F: FnMut(Snapshot) -> (T, Option<Snapshot>), T>(&self, mut f: F) -> T {
+    fn fetchUpdateAction<F: FnMut(Snapshot) -> (T, Option<Snapshot>), T>(&self, mut f: F) -> T {
         let mut currentValue = self.load();
 
         loop {

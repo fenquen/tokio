@@ -12,7 +12,7 @@ pub(super) struct Idle {
     /// Used as a fast-path to avoid acquiring the lock when needed.
     state: AtomicUsize,
 
-    /// Total number of workers.
+    /// Total number of workers 不变
     num_workers: usize,
 }
 
@@ -45,9 +45,8 @@ impl Idle {
         (idle, synced)
     }
 
-    /// If there are no workers actively searching, returns the index of a
-    /// worker currently sleeping.
-    pub(super) fn worker_to_notify(&self, shared: &WorkerSharedState) -> Option<usize> {
+    /// If there are no workers actively searching, returns the index of a worker currently sleeping.
+    pub(super) fn getWorkerToNotify(&self, workerSharedState: &WorkerSharedState) -> Option<usize> {
         // If at least one worker is spinning, work being notified will
         // eventually be found. A searching thread will find **some** work and
         // notify another worker, eventually leading to our work being found.
@@ -55,14 +54,13 @@ impl Idle {
         // For this to happen, this load must happen before the thread
         // transitioning `num_searching` to zero. Acquire / Release does not
         // provide sufficient guarantees, so this load is done with `SeqCst` and
-        // will pair with the `fetch_sub(1)` when transitioning out of
-        // searching.
+        // will pair with the `fetch_sub(1)` when transitioning out of searching
         if !self.notify_should_wakeup() {
             return None;
         }
 
         // Acquire the lock
-        let mut lock = shared.synced.lock();
+        let mut synced = workerSharedState.synced.lock();
 
         // Check again, now that the lock is acquired
         if !self.notify_should_wakeup() {
@@ -74,25 +72,24 @@ impl Idle {
         State::unpark_one(&self.state, 1);
 
         // Get the worker to unpark
-        let ret = lock.idleSyncState.sleepers.pop();
-        debug_assert!(ret.is_some());
+        let workerToNotifyIndex = synced.idleSyncState.sleepers.pop();
+        debug_assert!(workerToNotifyIndex.is_some());
 
-        ret
+        workerToNotifyIndex
     }
 
     /// Returns `true` if the worker needs to do a final check for submitted work.
     pub(super) fn transition_worker_to_parked(&self,
-                                              shared: &WorkerSharedState,
-                                              worker: usize,
+                                              workerSharedState: &WorkerSharedState,
+                                              workerIndex: usize,
                                               is_searching: bool) -> bool {
-        // Acquire the lock
-        let mut lock = shared.synced.lock();
+        let mut synced = workerSharedState.synced.lock();
 
         // Decrement the number of unparked threads
         let ret = State::dec_num_unparked(&self.state, is_searching);
 
         // Track the sleeping worker
-        lock.idleSyncState.sleepers.push(worker);
+        synced.idleSyncState.sleepers.push(workerIndex);
 
         ret
     }
@@ -179,8 +176,6 @@ impl State {
         state.num_searching() == 1
     }
 
-    /// Track a sleeping worker
-    ///
     /// Returns `true` if this is the final searching worker.
     fn dec_num_unparked(cell: &AtomicUsize, is_searching: bool) -> bool {
         let mut dec = 1 << UNPARK_SHIFT;

@@ -21,10 +21,10 @@ mod wheel;
 
 use crate::loom::sync::atomic::{AtomicBool, Ordering};
 use crate::loom::sync::Mutex;
-use crate::runtime::driver::{self, IOHandleEnum, IoStackEnum};
+use crate::runtime::driver::{self, DriverHandle, IOHandleEnum, IoStackEnum};
 use crate::time::error::Error;
 use crate::time::{Clock, Duration};
-use crate::util::WakeList;
+use crate::util::WakerList;
 
 use crate::loom::sync::atomic::AtomicU64;
 use std::fmt;
@@ -164,14 +164,6 @@ impl TimeDriver {
         (driver, handle)
     }
 
-    pub(crate) fn park(&mut self, handle: &driver::DriverHandle) {
-        self.park_internal(handle, None);
-    }
-
-    pub(crate) fn park_timeout(&mut self, handle: &driver::DriverHandle, duration: Duration) {
-        self.park_internal(handle, Some(duration));
-    }
-
     pub(crate) fn shutdown(&mut self, rt_handle: &driver::DriverHandle) {
         let handle = rt_handle.time();
 
@@ -187,7 +179,7 @@ impl TimeDriver {
         self.ioStackEnum.shutdown(rt_handle);
     }
 
-    fn park_internal(&mut self, driverHandle: &driver::DriverHandle, limit: Option<Duration>) {
+    pub fn park_internal(&mut self, driverHandle: &DriverHandle, maxWaitDuration: Option<Duration>) {
         let timeDriverHandle = driverHandle.time();
         assert!(!timeDriverHandle.is_shutdown());
 
@@ -212,7 +204,7 @@ impl TimeDriver {
                 let mut duration = timeDriverHandle.time_source.tick_to_duration(when.saturating_sub(now));
 
                 if duration > Duration::from_millis(0) {
-                    if let Some(limit) = limit {
+                    if let Some(limit) = maxWaitDuration {
                         duration = std::cmp::min(limit, duration);
                     }
 
@@ -222,7 +214,7 @@ impl TimeDriver {
                 }
             }
             None => {
-                if let Some(duration) = limit {
+                if let Some(duration) = maxWaitDuration {
                     self.park_thread_timeout(driverHandle, duration);
                 } else {
                     self.ioStackEnum.park(driverHandle);
@@ -234,35 +226,8 @@ impl TimeDriver {
         timeDriverHandle.process(driverHandle.clock());
     }
 
-    #[cfg(feature = "test-util")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "test-util")))]
     fn park_thread_timeout(&mut self, driverHandle: &driver::DriverHandle, duration: Duration) {
-        let handle = driverHandle.time();
-        let clock = driverHandle.clock();
-
-        if clock.can_auto_advance() {
-            self.ioStackEnum.park_timeout(driverHandle, Duration::from_secs(0));
-
-            // If the time driver was woken, then the park completed
-            // before the "duration" elapsed (usually caused by a
-            // yield in `Runtime::block_on`). In this case, we don't
-            // advance the clock.
-            if !handle.did_wake() {
-                // Simulate advancing time
-                if let Err(msg) = clock.advance(duration) {
-                    panic!("{}", msg);
-                }
-            }
-        } else {
-            self.ioStackEnum.park_timeout(driverHandle, duration);
-        }
-    }
-
-
-    cfg_not_test_util! {
-        fn park_thread_timeout(&mut self, rt_handle: &driver::DriverHandle, duration: Duration) {
-            self.ioStackEnum.park_timeout(rt_handle, duration);
-        }
+        self.ioStackEnum.park_timeout(driverHandle, duration);
     }
 }
 
@@ -305,7 +270,7 @@ impl TimeDriverHandle {
 
     // Returns the next wakeup time of this shard.
     pub(self) fn process_at_sharded_time(&self, id: u32, mut now: u64) -> Option<u64> {
-        let mut waker_list = WakeList::new();
+        let mut waker_list = WakerList::new();
         let mut wheels_lock = self
             .inner
             .wheels

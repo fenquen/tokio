@@ -8,7 +8,7 @@ use crate::io::ready::Ready;
 use crate::loom::sync::Mutex;
 use crate::runtime::driver;
 use crate::runtime::io::registration_set;
-use crate::runtime::io::{IoDriverMetrics, RegistrationSet, ScheduledIo};
+use crate::runtime::io::{RegistrationSet, ScheduledIo};
 
 use mio::event::Source;
 use std::fmt;
@@ -34,7 +34,7 @@ pub(crate) struct IODriverHandle {
     mioRegistry: mio::Registry,
 
     /// Tracks all registrations
-    registrations: RegistrationSet,
+    registrationSet: RegistrationSet,
 
     /// State that should be synchronized
     synced: Mutex<registration_set::Synced>,
@@ -43,8 +43,6 @@ pub(crate) struct IODriverHandle {
     /// Not supported on `Wasi` due to lack of threading support.
     #[cfg(not(target_os = "wasi"))]
     mioWaker: mio::Waker,
-
-    pub(crate) metrics: IoDriverMetrics,
 }
 
 #[derive(Debug)]
@@ -105,26 +103,17 @@ impl IODriver {
 
         let ioDriverHandle = IODriverHandle {
             mioRegistry,
-            registrations,
+            registrationSet: registrations,
             synced: Mutex::new(synced),
             mioWaker,
-            metrics: IoDriverMetrics::default(),
         };
 
         Ok((ioDriver, ioDriverHandle))
     }
 
-    pub(crate) fn park(&mut self, driverHandle: &driver::DriverHandle) {
-        self.turn(driverHandle.io(), None);
-    }
-
-    pub(crate) fn park_timeout(&mut self, driverHandle: &driver::DriverHandle, duration: Duration) {
-        self.turn(driverHandle.io(), Some(duration));
-    }
-
     pub(crate) fn shutdown(&mut self, rt_handle: &driver::DriverHandle) {
         let handle = rt_handle.io();
-        let ios = handle.registrations.shutdown(&mut handle.synced.lock());
+        let ios = handle.registrationSet.shutdown(&mut handle.synced.lock());
 
         // `shutdown()` must be called without holding the lock.
         for io in ios {
@@ -132,27 +121,23 @@ impl IODriver {
         }
     }
 
-    fn turn(&mut self, ioDriverHandle: &IODriverHandle, max_wait: Option<Duration>) {
-        debug_assert!(!ioDriverHandle.registrations.is_shutdown(&ioDriverHandle.synced.lock()));
+    pub fn turn(&mut self, ioDriverHandle: &IODriverHandle, maxWaitDuration: Option<Duration>) {
+        debug_assert!(!ioDriverHandle.registrationSet.is_shutdown(&ioDriverHandle.synced.lock()));
 
         ioDriverHandle.release_pending_registrations();
 
         let mioEvents = &mut self.mioEvents;
 
         // Block waiting for an event to happen, peeling out how many events happened.
-        match self.mioPoll.poll(mioEvents, max_wait) {
+        match self.mioPoll.poll(mioEvents, maxWaitDuration) {
             Ok(()) => {}
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
-            #[cfg(target_os = "wasi")]
-            Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
-                // In case of wasm32_wasi this error happens, when trying to poll without subscriptions
-                // just return from the park, as there would be nothing, which wakes us up.
-            }
             Err(e) => panic!("unexpected error when polling the I/O driver: {:?}", e),
         }
 
         // Process all the events that came in, dispatching appropriately
         let mut ready_count = 0;
+
         for mioEvent in mioEvents.iter() {
             let token = mioEvent.token();
 
@@ -163,7 +148,8 @@ impl IODriver {
             } else {
                 let ready = Ready::from_mio(mioEvent);
 
-                // Use std::ptr::from_exposed_addr when stable
+                // use std::ptr::from_exposed_addr when stable
+                // epoll的attachment
                 let scheduledIOPtr: *const ScheduledIo = token.0 as *const _;
 
                 // Safety: we ensure that the pointers used as tokens are not freed
@@ -172,14 +158,13 @@ impl IODriver {
                 // an `Arc<ScheduledIo>` so we can safely cast this to a ref.
                 let scheduleInfo = unsafe { &*scheduledIOPtr };
 
-                scheduleInfo.set_readiness(Tick::Set, |curr| curr | ready);
+                scheduleInfo.set_readiness(Tick::Set, |currentReady| currentReady | ready);
+
                 scheduleInfo.wake(ready);
 
                 ready_count += 1;
             }
         }
-
-        ioDriverHandle.metrics.incr_ready_count_by(ready_count);
     }
 }
 
@@ -207,51 +192,36 @@ impl IODriverHandle {
     /// Registers an I/O resource with the reactor for a given `mio::Ready` state.
     ///
     /// The registration token is returned.
-    pub(super) fn add_source(&self,
-                             source: &mut impl mio::event::Source,
-                             interest: Interest) -> io::Result<Arc<ScheduledIo>> {
-        let scheduled_io = self.registrations.allocate(&mut self.synced.lock())?;
+    pub(super) fn registerSource(&self, source: &mut impl Source, interest: Interest) -> io::Result<Arc<ScheduledIo>> {
+        let scheduled_io = self.registrationSet.allocate(&mut self.synced.lock())?;
         let token = scheduled_io.token();
 
         // we should remove the `scheduled_io` from the `registrations` set if registering
         // the `source` with the OS fails. Otherwise it will leak the `scheduled_io`.
         if let Err(e) = self.mioRegistry.register(source, token, interest.to_mio()) {
             // safety: `scheduled_io` is part of the `registrations` set.
-            unsafe { self.registrations.remove(&mut self.synced.lock(), &scheduled_io) };
-
+            unsafe { self.registrationSet.remove(&mut self.synced.lock(), &scheduled_io) };
             return Err(e);
         }
-
-        // TODO: move this logic to `RegistrationSet` and use a `CountedLinkedList`
-        self.metrics.incr_fd_count();
 
         Ok(scheduled_io)
     }
 
     /// Deregisters an I/O resource from the reactor.
-    pub(super) fn deregister_source(
-        &self,
-        registration: &Arc<ScheduledIo>,
-        source: &mut impl Source,
-    ) -> io::Result<()> {
+    pub(super) fn deregister_source(&self, registration: &Arc<ScheduledIo>, source: &mut impl Source) -> io::Result<()> {
         // Deregister the source with the OS poller **first**
         self.mioRegistry.deregister(source)?;
 
-        if self
-            .registrations
-            .deregister(&mut self.synced.lock(), registration)
-        {
+        if self.registrationSet.deregister(&mut self.synced.lock(), registration) {
             self.unpark();
         }
-
-        self.metrics.dec_fd_count();
 
         Ok(())
     }
 
     fn release_pending_registrations(&self) {
-        if self.registrations.needs_release() {
-            self.registrations.release(&mut self.synced.lock());
+        if self.registrationSet.needs_release() {
+            self.registrationSet.release(&mut self.synced.lock());
         }
     }
 }
