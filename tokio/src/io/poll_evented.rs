@@ -8,7 +8,7 @@ use std::io;
 use std::ops::Deref;
 use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::task::ready;
-
+use crate::runtime::scheduler::SchedulerHandleEnum;
 
 /// Associates an I/O resource that implements the [`std::io::Read`] and/or
 /// [`std::io::Write`] traits with the reactor that drives it.
@@ -64,64 +64,29 @@ use std::task::ready;
 /// [`poll_read_ready`]: Registration::poll_read_ready
 /// [`poll_write_ready`]: Registration::poll_write_ready
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))))]
 pub(crate) struct PollEvented<E: Source> {
-    io: Option<E>,
-    registration: Registration,
+    mioSource: Option<E>,
+    pub registration: Registration,
 }
 
-
-// ===== impl PollEvented =====
-
 impl<E: Source> PollEvented<E> {
-    /// Creates a new `PollEvented` associated with the default reactor.
-    ///
-    /// The returned `PollEvented` has readable and writable interests. For more control, use
-    /// [`Self::new_with_interest`].
-    ///
-    /// # Panics
-    ///
-    /// This function panics if thread-local runtime is not set.
-    ///
-    /// The runtime is usually set implicitly when this function is called
-    /// from a future driven by a tokio runtime, otherwise runtime can be set
-    /// explicitly with [`Runtime::enter`](crate::runtime::Runtime::enter) function.
     #[track_caller]
     #[cfg_attr(feature = "signal", allow(unused))]
     pub(crate) fn new(io: E) -> io::Result<Self> {
-        PollEvented::new_with_interest(io, Interest::READABLE | Interest::WRITABLE)
+        PollEvented::new_with_interest_and_handle(io, Interest::READABLE | Interest::WRITABLE, SchedulerHandleEnum::current())
     }
 
-    /// Creates a new `PollEvented` associated with the default reactor, for
-    /// specific `Interest` state. `new_with_interest` should be used over `new`
-    /// when you need control over the readiness state, such as when a file
-    /// descriptor only allows reads. This does not add `hup` or `error` so if
-    /// you are interested in those states, you will need to add them to the
-    /// readiness state passed to this function.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if thread-local runtime is not set.
-    ///
-    /// The runtime is usually set implicitly when this function is called from
-    /// a future driven by a tokio runtime, otherwise runtime can be set
-    /// explicitly with [`Runtime::enter`](crate::runtime::Runtime::enter)
-    /// function.
     #[track_caller]
     #[cfg_attr(feature = "signal", allow(unused))]
     pub(crate) fn new_with_interest(io: E, interest: Interest) -> io::Result<Self> {
-        Self::new_with_interest_and_handle(io, interest, scheduler::SchedulerHandleEnum::current())
+        Self::new_with_interest_and_handle(io, interest, SchedulerHandleEnum::current())
     }
 
     #[track_caller]
-    pub(crate) fn new_with_interest_and_handle(
-        mut io: E,
-        interest: Interest,
-        handle: scheduler::SchedulerHandleEnum,
-    ) -> io::Result<Self> {
-        let registration = Registration::new_with_interest_and_handle(&mut io, interest, handle)?;
+    pub(crate) fn new_with_interest_and_handle(mut io: E, interest: Interest, handle: SchedulerHandleEnum) -> io::Result<Self> {
+        let registration = Registration::register(&mut io, interest, handle)?;
         Ok(Self {
-            io: Some(io),
+            mioSource: Some(io),
             registration,
         })
     }
@@ -135,7 +100,7 @@ impl<E: Source> PollEvented<E> {
     /// Deregisters the inner io from the registration and returns a Result containing the inner io.
     #[cfg(any(feature = "net", feature = "process"))]
     pub(crate) fn into_inner(mut self) -> io::Result<E> {
-        let mut inner = self.io.take().unwrap(); // As io shouldn't ever be None, just unwrap here.
+        let mut inner = self.mioSource.take().unwrap(); // As io shouldn't ever be None, just unwrap here.
         self.registration.deregister(&mut inner)?;
         Ok(inner)
     }
@@ -151,10 +116,9 @@ impl<E: Source> PollEvented<E> {
     /// Re-register under new runtime with `interest`.
     #[cfg(all(feature = "process", target_os = "linux"))]
     pub(crate) fn reregister(&mut self, interest: Interest) -> io::Result<()> {
-        let io = self.io.as_mut().unwrap(); // As io shouldn't ever be None, just unwrap here.
+        let io = self.mioSource.as_mut().unwrap(); // As io shouldn't ever be None, just unwrap here.
         let _ = self.registration.deregister(io);
-        self.registration =
-            Registration::new_with_interest_and_handle(io, interest, scheduler::SchedulerHandleEnum::current())?;
+        self.registration = Registration::register(io, interest, scheduler::SchedulerHandleEnum::current())?;
 
         Ok(())
     }
@@ -187,7 +151,7 @@ feature! {
                 #[allow(unused_variables)]
                 let len = b.len();
 
-                match self.io.as_ref().unwrap().read(b) {
+                match self.mioSource.as_ref().unwrap().read(b) {
                     Ok(n) => {
                         // When mio is using the epoll or kqueue selector, reading a partially full
                         // buffer is sufficient to show that the socket buffer has been drained.
@@ -244,7 +208,7 @@ feature! {
             loop {
                 let evt = ready!(self.registration.poll_write_ready(cx))?;
 
-                match self.io.as_ref().unwrap().write(buf) {
+                match self.mioSource.as_ref().unwrap().write(buf) {
                     Ok(n) => {
                         // if we write only part of our buffer, this is sufficient on unix to show
                         // that the socket buffer is full.  Unfortunately this assumption
@@ -274,7 +238,7 @@ feature! {
             &'a E: io::Write + 'a,
         {
             use std::io::Write;
-            self.registration.poll_write_io(cx, || self.io.as_ref().unwrap().write_vectored(bufs))
+            self.registration.poll_write_io(cx, || self.mioSource.as_ref().unwrap().write_vectored(bufs))
         }
     }
 }
@@ -287,19 +251,19 @@ impl<E: Source> Deref for PollEvented<E> {
     type Target = E;
 
     fn deref(&self) -> &E {
-        self.io.as_ref().unwrap()
+        self.mioSource.as_ref().unwrap()
     }
 }
 
 impl<E: Source + fmt::Debug> fmt::Debug for PollEvented<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PollEvented").field("io", &self.io).finish()
+        f.debug_struct("PollEvented").field("io", &self.mioSource).finish()
     }
 }
 
 impl<E: Source> Drop for PollEvented<E> {
     fn drop(&mut self) {
-        if let Some(mut io) = self.io.take() {
+        if let Some(mut io) = self.mioSource.take() {
             // Ignore errors
             let _ = self.registration.deregister(&mut io);
         }

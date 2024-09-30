@@ -8,47 +8,12 @@ use mio::event::Source;
 use std::io;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
+use crate::runtime::scheduler::SchedulerHandleEnum;
 
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))))]
-/// Associates an I/O resource with the reactor instance that drives it.
-///
-/// A registration represents an I/O resource registered with a Reactor such
-/// that it will receive task notifications on readiness. This is the lowest
-/// level API for integrating with a reactor.
-///
-/// The association between an I/O resource is made by calling
-/// [`new_with_interest_and_handle`].
-/// Once the association is established, it remains established until the
-/// registration instance is dropped.
-///
-/// A registration instance represents two separate readiness streams. One
-/// for the read readiness and one for write readiness. These streams are
-/// independent and can be consumed from separate tasks.
-///
-/// **Note**: while `Registration` is `Sync`, the caller must ensure that
-/// there are at most two tasks that use a registration instance
-/// concurrently. One task for [`poll_read_ready`] and one task for
-/// [`poll_write_ready`]. While violating this requirement is "safe" from a
-/// Rust memory safety point of view, it will result in unexpected behavior
-/// in the form of lost notifications and tasks hanging.
-///
-/// ## Platform-specific events
-///
-/// `Registration` also allows receiving platform-specific `mio::Ready`
-/// events. These events are included as part of the read readiness event
-/// stream. The write readiness event stream is only for `Ready::writable()`
-/// events.
-///
-/// [`new_with_interest_and_handle`]: method@Self::new_with_interest_and_handle
-/// [`poll_read_ready`]: method@Self::poll_read_ready`
-/// [`poll_write_ready`]: method@Self::poll_write_ready`
 #[derive(Debug)]
 pub(crate) struct Registration {
-    /// Handle to the associated runtime.
-    ///
-    /// TODO: this can probably be moved into `ScheduledIo`.
-    schedulerHandleEnum: scheduler::SchedulerHandleEnum,
+    schedulerHandleEnum: SchedulerHandleEnum,
 
     /// Reference to state stored by the driver.
     scheduledIo: Arc<ScheduledIo>,
@@ -56,8 +21,6 @@ pub(crate) struct Registration {
 
 unsafe impl Send for Registration {}
 unsafe impl Sync for Registration {}
-
-// ===== impl Registration =====
 
 impl Registration {
     /// Registers the I/O resource with the reactor for the provided handle, for
@@ -70,10 +33,10 @@ impl Registration {
     /// - `Ok` if the registration happened successfully
     /// - `Err` if an error was encountered during registration
     #[track_caller]
-    pub(crate) fn new_with_interest_and_handle(mioSource: &mut impl Source,
-                                               interest: Interest,
-                                               schedulerHandleEnum: scheduler::SchedulerHandleEnum) -> io::Result<Registration> {
-        let scheduledIo = schedulerHandleEnum.driver().io().registerSource(mioSource, interest)?;
+    pub(crate) fn register(mioSource: &mut impl Source,
+                           interest: Interest,
+                           schedulerHandleEnum: SchedulerHandleEnum) -> io::Result<Registration> {
+        let scheduledIo = schedulerHandleEnum.driver().io().register(mioSource, interest)?;
         Ok(Registration { schedulerHandleEnum, scheduledIo })
     }
 
@@ -94,7 +57,7 @@ impl Registration {
     ///
     /// `Err` is returned if an error is encountered.
     pub(crate) fn deregister(&mut self, io: &mut impl Source) -> io::Result<()> {
-        self.handle().deregister_source(&self.scheduledIo, io)
+        self.handle().deregister(&self.scheduledIo, io)
     }
 
     pub(crate) fn clear_readiness(&self, event: ReadyEvent) {
@@ -199,20 +162,16 @@ impl Registration {
     }
 
     pub(crate) async fn readiness(&self, interest: Interest) -> io::Result<ReadyEvent> {
-        let ev = self.scheduledIo.readiness(interest).await;
+        let readyEvent = self.scheduledIo.pollReadinessAsync(interest).await;
 
-        if ev.is_shutdown {
+        if readyEvent.is_shutdown {
             return Err(gone());
         }
 
-        Ok(ev)
+        Ok(readyEvent)
     }
 
-    pub(crate) async fn async_io<R>(
-        &self,
-        interest: Interest,
-        mut f: impl FnMut() -> io::Result<R>,
-    ) -> io::Result<R> {
+    pub(crate) async fn async_io<R>(&self, interest: Interest, mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
         loop {
             let event = self.readiness(interest).await?;
 
@@ -249,8 +208,5 @@ impl Drop for Registration {
 }
 
 fn gone() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::Other,
-        crate::util::error::RUNTIME_SHUTTING_DOWN_ERROR,
-    )
+    io::Error::new(io::ErrorKind::Other, crate::util::error::RUNTIME_SHUTTING_DOWN_ERROR)
 }

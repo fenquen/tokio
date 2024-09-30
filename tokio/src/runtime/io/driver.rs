@@ -189,16 +189,13 @@ impl IODriverHandle {
         self.mioWaker.wake().expect("failed to wake I/O driver");
     }
 
-    /// Registers an I/O resource with the reactor for a given `mio::Ready` state.
-    ///
-    /// The registration token is returned.
-    pub(super) fn registerSource(&self, source: &mut impl Source, interest: Interest) -> io::Result<Arc<ScheduledIo>> {
-        let scheduled_io = self.registrationSet.allocate(&mut self.synced.lock())?;
+    pub(super) fn register(&self, mioSource: &mut impl Source, interest: Interest) -> io::Result<Arc<ScheduledIo>> {
+        let scheduled_io = self.registrationSet.register(&mut self.synced.lock())?;
         let token = scheduled_io.token();
 
         // we should remove the `scheduled_io` from the `registrations` set if registering
         // the `source` with the OS fails. Otherwise it will leak the `scheduled_io`.
-        if let Err(e) = self.mioRegistry.register(source, token, interest.to_mio()) {
+        if let Err(e) = self.mioRegistry.register(mioSource, token, interest.to_mio()) {
             // safety: `scheduled_io` is part of the `registrations` set.
             unsafe { self.registrationSet.remove(&mut self.synced.lock(), &scheduled_io) };
             return Err(e);
@@ -208,7 +205,7 @@ impl IODriverHandle {
     }
 
     /// Deregisters an I/O resource from the reactor.
-    pub(super) fn deregister_source(&self, registration: &Arc<ScheduledIo>, source: &mut impl Source) -> io::Result<()> {
+    pub(super) fn deregister(&self, registration: &Arc<ScheduledIo>, source: &mut impl Source) -> io::Result<()> {
         // Deregister the source with the OS poller **first**
         self.mioRegistry.deregister(source)?;
 

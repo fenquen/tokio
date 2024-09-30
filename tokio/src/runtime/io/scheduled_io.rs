@@ -102,7 +102,7 @@ pub(crate) struct ScheduledIo {
     pub(super) linked_list_pointers: UnsafeCell<linked_list::Pointers<ScheduledIo>>,
 
     /// Packs the resource's readiness and I/O driver latest tick.
-    readiness: AtomicUsize,
+    readyValue: AtomicUsize,
 
     waiters: Mutex<Waiters>,
 }
@@ -147,9 +147,7 @@ impl<> Waiter {
 
 struct Readiness<'a> {
     scheduled_io: &'a ScheduledIo,
-
     state: State,
-
     /// Entry in the waiter `LinkedList`.
     waiter: UnsafeCell<Waiter>,
 }
@@ -182,7 +180,7 @@ impl ScheduledIo {
     /// permanently shutdown state.
     pub(super) fn shutdown(&self) {
         let mask = SHUTDOWN.pack(1, 0);
-        self.readiness.fetch_or(mask, AcqRel);
+        self.readyValue.fetch_or(mask, AcqRel);
         self.wake(Ready::ALL);
     }
 
@@ -193,7 +191,7 @@ impl ScheduledIo {
     /// - `tick`: whether setting the tick or trying to clear readiness for a specific tick
     /// - `f`: a closure returning a new readiness value given the previous readiness
     pub(super) fn set_readiness(&self, tick: Tick, f: impl Fn(Ready) -> Ready) {
-        let mut currentReadyVal = self.readiness.load(Acquire);
+        let mut currentReadyVal = self.readyValue.load(Acquire);
 
         // If the io driver is shut down, then you are only allowed to clear readiness.
         debug_assert!(SHUTDOWN.unpack(currentReadyVal) == 0 || matches!(tick, Tick::Clear(_)));
@@ -220,7 +218,7 @@ impl ScheduledIo {
 
             let next = TICK.pack(new_tick, newReady.as_usize());
 
-            match self.readiness.compare_exchange(currentReadyVal, next, AcqRel, Acquire) {
+            match self.readyValue.compare_exchange(currentReadyVal, next, AcqRel, Acquire) {
                 Ok(_) => return,
                 Err(actual) => currentReadyVal = actual,  // lost the race, retry
             }
@@ -288,7 +286,7 @@ impl ScheduledIo {
     }
 
     pub(super) fn ready_event(&self, interest: Interest) -> ReadyEvent {
-        let curr = self.readiness.load(Acquire);
+        let curr = self.readyValue.load(Acquire);
 
         ReadyEvent {
             tick: TICK.unpack(curr) as u8,
@@ -303,7 +301,7 @@ impl ScheduledIo {
     /// which cannot use the `async fn` version. This uses reserved reader
     /// and writer slots.
     pub(super) fn poll_readiness(&self, cx: &mut Context<'_>, direction: Direction) -> Poll<ReadyEvent> {
-        let curr = self.readiness.load(Acquire);
+        let curr = self.readyValue.load(Acquire);
 
         let ready = direction.mask() & Ready::from_usize(READINESS.unpack(curr));
         let is_shutdown = SHUTDOWN.unpack(curr) != 0;
@@ -331,7 +329,7 @@ impl ScheduledIo {
 
             // Try again, in case the readiness was changed while we were
             // taking the waiters lock
-            let curr = self.readiness.load(Acquire);
+            let curr = self.readyValue.load(Acquire);
             let ready = direction.mask() & Ready::from_usize(READINESS.unpack(curr));
             let is_shutdown = SHUTDOWN.unpack(curr) != 0;
             if is_shutdown {
@@ -372,7 +370,7 @@ impl ScheduledIo {
     }
 
     /// An async version of `poll_readiness` which uses a linked list of wakers.
-    pub(crate) async fn readiness(&self, interest: Interest) -> ReadyEvent {
+    pub(crate) async fn pollReadinessAsync(&self, interest: Interest) -> ReadyEvent {
         self.readiness_fut(interest).await
     }
 
@@ -408,7 +406,7 @@ impl Default for ScheduledIo {
     fn default() -> ScheduledIo {
         ScheduledIo {
             linked_list_pointers: UnsafeCell::new(linked_list::Pointers::new()),
-            readiness: AtomicUsize::new(0),
+            readyValue: AtomicUsize::new(0),
             waiters: Mutex::new(Waiters::default()),
         }
     }
@@ -446,14 +444,12 @@ impl Future for Readiness<'_> {
             match *state {
                 State::Init => {
                     // Optimistically check existing readiness
-                    let curr = scheduled_io.readiness.load(SeqCst);
+                    let curr = scheduled_io.readyValue.load(SeqCst);
                     let ready = Ready::from_usize(READINESS.unpack(curr));
                     let is_shutdown = SHUTDOWN.unpack(curr) != 0;
-
-                    // Safety: `waiter.interest` never changes
+                    // `waiter.interest` never changes
                     let interest = unsafe { (*waiter.get()).interest };
                     let ready = ready.intersection(interest);
-
                     if !ready.is_empty() || is_shutdown {
                         // Currently ready!
                         let tick = TICK.unpack(curr) as u8;
@@ -468,18 +464,15 @@ impl Future for Readiness<'_> {
                     // Wasn't ready, take the lock (and check again while locked).
                     let mut waiters = scheduled_io.waiters.lock();
 
-                    let curr = scheduled_io.readiness.load(SeqCst);
+                    let curr = scheduled_io.readyValue.load(SeqCst);
                     let mut ready = Ready::from_usize(READINESS.unpack(curr));
                     let is_shutdown = SHUTDOWN.unpack(curr) != 0;
-
                     if is_shutdown {
                         ready = Ready::ALL;
                     }
-
                     let ready = ready.intersection(interest);
-
                     if !ready.is_empty() || is_shutdown {
-                        // Currently ready!
+                        // currently ready!
                         let tick = TICK.unpack(curr) as u8;
                         *state = State::Done;
                         return Poll::Ready(ReadyEvent {
@@ -492,14 +485,11 @@ impl Future for Readiness<'_> {
                     // Not ready even after locked, insert into list...
 
                     // Safety: called while locked
-                    unsafe {
-                        (*waiter.get()).waker = Some(cx.waker().clone());
-                    }
+                    unsafe { (*waiter.get()).waker = Some(cx.waker().clone());}
 
-                    // Insert the waiter into the linked list
-                    //
                     // safety: pointers from `UnsafeCell` are never null.
                     waiters.waiterList.push_front(unsafe { NonNull::new_unchecked(waiter.get()) });
+
                     *state = State::Waiting;
                 }
                 State::Waiting => {
@@ -510,14 +500,13 @@ impl Future for Readiness<'_> {
 
                     let waiters = scheduled_io.waiters.lock();
 
-                    // Safety: called while locked
                     let w = unsafe { &mut *waiter.get() };
 
                     if w.is_ready {
                         // Our waker has been notified.
                         *state = State::Done;
                     } else {
-                        // Update the waker, if necessary.
+                        // update the waker, if necessary.
                         if !w.waker.as_ref().unwrap().will_wake(cx.waker()) {
                             w.waker = Some(cx.waker().clone());
                         }
@@ -536,7 +525,7 @@ impl Future for Readiness<'_> {
                     // Safety: State::Done means it is no longer shared
                     let w = unsafe { &mut *waiter.get() };
 
-                    let curr = scheduled_io.readiness.load(Acquire);
+                    let curr = scheduled_io.readyValue.load(Acquire);
                     let is_shutdown = SHUTDOWN.unpack(curr) != 0;
 
                     // The returned tick might be newer than the event
@@ -566,9 +555,7 @@ impl Drop for Readiness<'_> {
 
         // Safety: `waiter` is only ever stored in `waiters`
         unsafe {
-            waiters
-                .waiterList
-                .remove(NonNull::new_unchecked(self.waiter.get()))
+            waiters.waiterList.remove(NonNull::new_unchecked(self.waiter.get()))
         };
     }
 }

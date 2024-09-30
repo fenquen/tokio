@@ -39,25 +39,23 @@ impl Storage for OsStorage {
         self.get(id).map(|si| &si.event_info)
     }
 
-    fn for_each<'a, F>(&'a self, f: F)
-    where
-        F: FnMut(&'a EventInfo),
-    {
+    fn for_each<'a, F: FnMut(&'a EventInfo)>(&'a self, f: F) {
         self.iter().map(|si| &si.event_info).for_each(f);
     }
 }
 
+/// 内部有socketPair两头 使用 AF_UNIX 和 stream
 #[derive(Debug)]
 pub(crate) struct OsExtraData {
-    sender: UnixStream,
-    pub(crate) receiver: UnixStream,
+    socketPairSender: UnixStream,
+    pub(crate) socketPairReceiver: UnixStream,
 }
 
 impl Init for OsExtraData {
     fn init() -> Self {
-        let (receiver, sender) = UnixStream::pair().expect("failed to create UnixStream");
+        let (socketPairSender, socketPairReceiver) = UnixStream::pair().expect("failed to create UnixStream");
 
-        Self { sender, receiver }
+        Self { socketPairSender, socketPairReceiver}
     }
 }
 
@@ -244,7 +242,7 @@ fn action(globals: &'static Globals, signal: libc::c_int) {
 
     // Send a wakeup, ignore any errors (anything reasonably possible is
     // full pipe and then it will wake up anyway).
-    let mut sender = &globals.sender;
+    let mut sender = &globals.socketPairSender;
     drop(sender.write(&[1]));
 }
 

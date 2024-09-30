@@ -13,7 +13,7 @@ impl ThreadId {
         loop {
             let id = match last.checked_add(1) {
                 Some(id) => id,
-                None => exhausted(),
+                None => panic!("failed to generate unique thread ID: bitspace exhausted"),
             };
 
             match NEXT_ID.compare_exchange_weak(last, id, Relaxed, Relaxed) {
@@ -22,10 +22,4 @@ impl ThreadId {
             }
         }
     }
-}
-
-#[cold]
-#[allow(dead_code)]
-fn exhausted() -> ! {
-    panic!("failed to generate unique thread ID: bitspace exhausted")
 }

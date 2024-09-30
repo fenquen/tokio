@@ -8,9 +8,9 @@ pub(crate) struct TimeSource {
 }
 
 impl TimeSource {
-    pub(crate) fn new(clock: &Clock) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            start_time: clock.now(),
+            start_time:  Instant::from_std(std::time::Instant::now()),
         }
     }
 
@@ -22,10 +22,7 @@ impl TimeSource {
     pub(crate) fn instant_to_tick(&self, t: Instant) -> u64 {
         // round up
         let dur: Duration = t.saturating_duration_since(self.start_time);
-        let ms = dur
-            .as_millis()
-            .try_into()
-            .unwrap_or(MAX_SAFE_MILLIS_DURATION);
+        let ms = dur.as_millis().try_into().unwrap_or(MAX_SAFE_MILLIS_DURATION);
         ms.min(MAX_SAFE_MILLIS_DURATION)
     }
 
@@ -33,7 +30,7 @@ impl TimeSource {
         Duration::from_millis(t)
     }
 
-    pub(crate) fn now(&self, clock: &Clock) -> u64 {
-        self.instant_to_tick(clock.now())
+    pub(crate) fn now(&self) -> u64 {
+        self.instant_to_tick( Instant::from_std(std::time::Instant::now()))
     }
 }

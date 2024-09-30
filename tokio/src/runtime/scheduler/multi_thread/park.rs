@@ -29,9 +29,7 @@ impl Parker {
                 state: AtomicUsize::new(EMPTY),
                 mutex: Mutex::new(()),
                 condvar: Condvar::new(),
-                shared: Arc::new(Shared {
-                    driver: TryLock::new(driver),
-                }),
+                parkerUnParkerInnerShared: Arc::new(ParkerUnParkerInnerShared { driver: TryLock::new(driver)}),
             }),
         }
     }
@@ -50,8 +48,8 @@ impl Parker {
         // Only parking with zero is supported...
         assert_eq!(duration, Duration::from_millis(0));
 
-        if let Some(mut driver) = self.parkerUnParkerInner.shared.driver.try_lock() {
-            driver.park_timeout(handle, duration);
+        if let Some(mut driver) = self.parkerUnParkerInner.parkerUnParkerInnerShared.driver.try_lock() {
+            driver.park_timeout(handle, Some(duration));
         }
     }
 
@@ -67,7 +65,7 @@ impl Clone for Parker {
                 state: AtomicUsize::new(EMPTY),
                 mutex: Mutex::new(()),
                 condvar: Condvar::new(),
-                shared: self.parkerUnParkerInner.shared.clone(),
+                parkerUnParkerInnerShared: self.parkerUnParkerInner.parkerUnParkerInnerShared.clone(),
             }),
         }
     }
@@ -94,11 +92,11 @@ struct ParkerUnParkerInner {
     condvar: Condvar,
 
     /// Resource (I/O, time, ...) driver
-    shared: Arc<Shared>,
+    parkerUnParkerInnerShared: Arc<ParkerUnParkerInnerShared>,
 }
 
 /// Shared across multiple Parker handles
-struct Shared {
+struct ParkerUnParkerInnerShared {
     /// Shared driver. Only one thread at a time can use this
     driver: TryLock<Driver>,
 }
@@ -111,7 +109,7 @@ impl ParkerUnParkerInner {
             return;
         }
 
-        if let Some(mut driver) = self.shared.driver.try_lock() {
+        if let Some(mut driver) = self.parkerUnParkerInnerShared.driver.try_lock() {
             self.park_driver(&mut driver, handle);
         } else {
             self.park_condvar();
@@ -169,7 +167,7 @@ impl ParkerUnParkerInner {
             Err(actual) => panic!("inconsistent park state; actual = {}", actual),
         }
 
-        driver.park(driverHandle);
+        driver.park_timeout(driverHandle, None);
 
         match self.state.swap(EMPTY, SeqCst) {
             NOTIFIED => {}      // got a notification, hurray!
@@ -211,7 +209,7 @@ impl ParkerUnParkerInner {
     }
 
     fn shutdown(&self, handle: &driver::DriverHandle) {
-        if let Some(mut driver) = self.shared.driver.try_lock() {
+        if let Some(mut driver) = self.parkerUnParkerInnerShared.driver.try_lock() {
             driver.shutdown(handle);
         }
 

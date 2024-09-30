@@ -1,7 +1,4 @@
-#![cfg_attr(
-    any(not(all(tokio_unstable, feature = "full")), target_family = "wasm"),
-    allow(dead_code)
-)]
+#![cfg_attr(any(not(all(tokio_unstable, feature = "full")), target_family = "wasm"), allow(dead_code))]
 use crate::runtime::{Callback, TaskCallback};
 use crate::util::RngSeedGenerator;
 

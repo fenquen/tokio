@@ -9,6 +9,7 @@ use mio::net::UnixStream;
 use std::io::{self as std_io, Read};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
+use crate::runtime::io::{IODriver, IODriverHandle};
 
 /// Responsible for registering wakeups when an OS signal is received, and
 /// subsequently dispatching notifications to any signal listeners as appropriate.
@@ -18,10 +19,10 @@ use std::time::Duration;
 #[derive(Debug)]
 pub(crate) struct SignalDriver {
     /// Thread parker. The `Driver` park implementation delegates to this.
-    pub ioDriver: io::IODriver,
+    pub ioDriver: IODriver,
 
-    /// A pipe for receiving wake events from the signal handler
-    receiver: UnixStream,
+    /// socketPair
+    signalReceiver: UnixStream,
 
     /// Shared state. The driver keeps a strong ref and the handle keeps a weak
     /// ref. The weak ref is used to check if the driver is still active before
@@ -29,16 +30,9 @@ pub(crate) struct SignalDriver {
     inner: Arc<()>,
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct SignalDriverHandle {
-    /// Paired w/ the `Arc` above and is used to check if the driver is still
-    /// around before attempting to register a signal handler.
-    inner: Weak<()>,
-}
-
 impl SignalDriver {
     /// creates a new signal `Driver` instance that delegates wakeups to `park`.
-    pub(crate) fn new(io: io::IODriver, io_handle: &io::IODriverHandle) -> std_io::Result<Self> {
+    pub(crate) fn new(ioDriver: IODriver, ioDriverHandle: &IODriverHandle) -> std_io::Result<Self> {
         use std::mem::ManuallyDrop;
         use std::os::unix::io::{AsRawFd, FromRawFd};
 
@@ -62,23 +56,23 @@ impl SignalDriver {
         // only expect at least one dup to receive the notification.
 
         // Manually drop as we don't actually own this instance of UnixStream.
-        let receiver_fd = globals().receiver.as_raw_fd();
+        let receiver_fd = globals().socketPairReceiver.as_raw_fd();
 
+        // 如下本质是复制份mio的UnixStream
         // safety: there is nothing unsafe about this, but the `from_raw_fd` fn is marked as unsafe.
         let original = ManuallyDrop::new(unsafe { std::os::unix::net::UnixStream::from_raw_fd(receiver_fd) });
-        let mut receiver = UnixStream::from_std(original.try_clone()?);
+        let mut signalReceiver = UnixStream::from_std(original.try_clone()?);
 
-        io_handle.register_signal_receiver(&mut receiver)?;
+        ioDriverHandle.register_signal_receiver(&mut signalReceiver)?;
 
-        Ok(Self {
-            ioDriver: io,
-            receiver,
+        Ok(SignalDriver {
+            ioDriver,
+            signalReceiver,
             inner: Arc::new(()),
         })
     }
 
-    /// Returns a handle to this event loop which can be sent across threads
-    /// and can be used as a proxy to the event loop itself.
+    /// Returns a handle to this event loop which can be sent across threads and can be used as a proxy to the event loop itself.
     pub(crate) fn handle(&self) -> SignalDriverHandle {
         SignalDriverHandle {
             inner: Arc::downgrade(&self.inner),
@@ -99,7 +93,7 @@ impl SignalDriver {
         let mut buf = [0; 128];
         #[allow(clippy::unused_io_amount)]
         loop {
-            match self.receiver.read(&mut buf) {
+            match self.signalReceiver.read(&mut buf) {
                 Ok(0) => panic!("EOF on self-pipe"),
                 Ok(_) => continue, // Keep reading
                 Err(e) if e.kind() == std_io::ErrorKind::WouldBlock => break,
@@ -112,17 +106,19 @@ impl SignalDriver {
     }
 }
 
-// ===== impl Handle =====
+#[derive(Debug, Default)]
+pub(crate) struct SignalDriverHandle {
+    /// Paired w/ the `Arc` above and is used to check if the driver is still
+    /// around before attempting to register a signal handler.
+    inner: Weak<()>,
+}
 
 impl SignalDriverHandle {
     pub(crate) fn check_inner(&self) -> std_io::Result<()> {
         if self.inner.strong_count() > 0 {
             Ok(())
         } else {
-            Err(std_io::Error::new(
-                std_io::ErrorKind::Other,
-                "signal driver gone",
-            ))
+            Err(std_io::Error::new(std_io::ErrorKind::Other, "signal driver gone", ))
         }
     }
 }

@@ -639,15 +639,15 @@ impl MultiThreadThreadLocalContext {
         self.assert_lifo_enabled_is_correct(&core);
 
         // Take the parker out of core
-        let mut park = core.parker.take().expect("park missing");
+        let mut parker = core.parker.take().expect("park missing");
         // core set到threadLocal
         *self.core.borrow_mut() = Some(core);
 
         // Park thread
         if let Some(timeout) = duration {
-            park.park_timeout(&self.worker.multiThreadSchedulerHandle.driverHandle, timeout);
+            parker.park_timeout(&self.worker.multiThreadSchedulerHandle.driverHandle, timeout);
         } else {
-            park.park(&self.worker.multiThreadSchedulerHandle.driverHandle);
+            parker.park(&self.worker.multiThreadSchedulerHandle.driverHandle);
         }
 
         self.defer.wake();
@@ -655,7 +655,7 @@ impl MultiThreadThreadLocalContext {
         // core threadLocal拿掉
         core = self.core.borrow_mut().take().expect("core missing");
         // Place `park` back in `core`
-        core.parker = Some(park);
+        core.parker = Some(parker);
 
         if core.should_notify_others() {
             self.worker.multiThreadSchedulerHandle.notify_parked_remote();

@@ -52,7 +52,7 @@ cfg_net! {
     /// }
     /// ```
     pub struct TcpListener {
-        io: PollEvented<mio::net::TcpListener>,
+        pollEvented: PollEvented<mio::net::TcpListener>,
     }
 }
 
@@ -116,7 +116,7 @@ impl TcpListener {
 
         fn bind_addr(addr: SocketAddr) -> io::Result<TcpListener> {
             let listener = mio::net::TcpListener::bind(addr)?;
-            TcpListener::new(listener)
+            TcpListener::fromMio(listener)
         }
     }
 
@@ -155,7 +155,7 @@ impl TcpListener {
     /// }
     /// ```
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let (mioTcpStream, socketAddr) = self.io.registration().async_io(Interest::READABLE, || self.io.accept()).await?;
+        let (mioTcpStream, socketAddr) = self.pollEvented.registration.async_io(Interest::READABLE, || self.pollEvented.accept()).await?;
         let tcpStream = TcpStream::new(mioTcpStream)?;
         Ok((tcpStream, socketAddr))
     }
@@ -168,15 +168,15 @@ impl TcpListener {
     /// recent call is scheduled to receive a wakeup.
     pub fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
         loop {
-            let ev = ready!(self.io.registration().poll_read_ready(cx))?;
+            let ev = ready!(self.pollEvented.registration().poll_read_ready(cx))?;
 
-            match self.io.accept() {
+            match self.pollEvented.accept() {
                 Ok((io, addr)) => {
                     let io = TcpStream::new(io)?;
                     return Poll::Ready(Ok((io, addr)));
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.io.registration().clear_readiness(ev);
+                    self.pollEvented.registration().clear_readiness(ev);
                 }
                 Err(e) => return Poll::Ready(Err(e)),
             }
@@ -229,7 +229,7 @@ impl TcpListener {
     pub fn from_std(listener: net::TcpListener) -> io::Result<TcpListener> {
         let io = mio::net::TcpListener::from_std(listener);
         let io = PollEvented::new(io)?;
-        Ok(TcpListener { io })
+        Ok(TcpListener { io: pollEvented })
     }
 
     /// Turns a [`tokio::net::TcpListener`] into a [`std::net::TcpListener`].
@@ -258,7 +258,7 @@ impl TcpListener {
         #[cfg(unix)]
         {
             use std::os::unix::io::{FromRawFd, IntoRawFd};
-            self.io
+            self.pollEvented
                 .into_inner()
                 .map(IntoRawFd::into_raw_fd)
                 .map(|raw_fd| unsafe { std::net::TcpListener::from_raw_fd(raw_fd) })
@@ -266,9 +266,9 @@ impl TcpListener {
     }
 
     cfg_not_wasi! {
-        pub(crate) fn new(listener: mio::net::TcpListener) -> io::Result<TcpListener> {
-            let io = PollEvented::new(listener)?;
-            Ok(TcpListener { io })
+        pub(crate) fn fromMio(mioTcpListener: mio::net::TcpListener) -> io::Result<TcpListener> {
+            let io = PollEvented::new(mioTcpListener)?;
+            Ok(TcpListener { pollEvented })
         }
     }
 
@@ -296,7 +296,7 @@ impl TcpListener {
     /// }
     /// ```
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.io.local_addr()
+        self.pollEvented.local_addr()
     }
 
     /// Gets the value of the `IP_TTL` option for this socket.
@@ -323,7 +323,7 @@ impl TcpListener {
     /// }
     /// ```
     pub fn ttl(&self) -> io::Result<u32> {
-        self.io.ttl()
+        self.pollEvented.ttl()
     }
 
     /// Sets the value for the `IP_TTL` option on this socket.
@@ -348,7 +348,7 @@ impl TcpListener {
     /// }
     /// ```
     pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
-        self.io.set_ttl(ttl)
+        self.pollEvented.set_ttl(ttl)
     }
 }
 
@@ -366,7 +366,7 @@ impl TryFrom<net::TcpListener> for TcpListener {
 
 impl fmt::Debug for TcpListener {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.io.fmt(f)
+        self.pollEvented.fmt(f)
     }
 }
 
@@ -377,7 +377,7 @@ mod sys {
 
     impl AsRawFd for TcpListener {
         fn as_raw_fd(&self) -> RawFd {
-            self.io.as_raw_fd()
+            self.pollEvented.as_raw_fd()
         }
     }
 

@@ -692,7 +692,7 @@ impl TcpSocket {
             unsafe { mio::net::TcpListener::from_raw_fd(raw_fd) }
         };
 
-        TcpListener::new(mio)
+        TcpListener::fromMio(mio)
     }
 
     /// Converts a [`std::net::TcpStream`] into a `TcpSocket`. The provided

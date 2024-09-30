@@ -161,43 +161,6 @@ impl TcpStream {
         Ok(TcpStream { io })
     }
 
-    /// Creates new `TcpStream` from a `std::net::TcpStream`.
-    ///
-    /// This function is intended to be used to wrap a TCP stream from the
-    /// standard library in the Tokio equivalent.
-    ///
-    /// # Notes
-    ///
-    /// The caller is responsible for ensuring that the stream is in
-    /// non-blocking mode. Otherwise all I/O operations on the stream
-    /// will block the thread, which will cause unexpected behavior.
-    /// Non-blocking mode can be set using [`set_nonblocking`].
-    ///
-    /// [`set_nonblocking`]: std::net::TcpStream::set_nonblocking
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use std::error::Error;
-    /// use tokio::net::TcpStream;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn Error>> {
-    ///     let std_stream = std::net::TcpStream::connect("127.0.0.1:34254")?;
-    ///     std_stream.set_nonblocking(true)?;
-    ///     let stream = TcpStream::from_std(std_stream)?;
-    ///     Ok(())
-    /// }
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// This function panics if it is not called from within a runtime with
-    /// IO enabled.
-    ///
-    /// The runtime is usually set implicitly when this function is called
-    /// from a future driven by a tokio runtime, otherwise runtime can be set
-    /// explicitly with [`Runtime::enter`](crate::runtime::Runtime::enter) function.
     #[track_caller]
     pub fn from_std(stream: std::net::TcpStream) -> io::Result<TcpStream> {
         let io = mio::net::TcpStream::from_std(stream);
@@ -205,44 +168,6 @@ impl TcpStream {
         Ok(TcpStream { io })
     }
 
-    /// Turns a [`tokio::net::TcpStream`] into a [`std::net::TcpStream`].
-    ///
-    /// The returned [`std::net::TcpStream`] will have nonblocking mode set as `true`.
-    /// Use [`set_nonblocking`] to change the blocking mode if needed.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::error::Error;
-    /// use std::io::Read;
-    /// use tokio::net::TcpListener;
-    /// # use tokio::net::TcpStream;
-    /// # use tokio::io::AsyncWriteExt;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn Error>> {
-    ///     let mut data = [0u8; 12];
-    /// #   if false {
-    ///     let listener = TcpListener::bind("127.0.0.1:34254").await?;
-    /// #   }
-    /// #   let listener = TcpListener::bind("127.0.0.1:0").await?;
-    /// #   let addr = listener.local_addr().unwrap();
-    /// #   let handle = tokio::spawn(async move {
-    /// #       let mut stream: TcpStream = TcpStream::connect(addr).await.unwrap();
-    /// #       stream.write_all(b"Hello world!").await.unwrap();
-    /// #   });
-    ///     let (tokio_tcp_stream, _) = listener.accept().await?;
-    ///     let mut std_tcp_stream = tokio_tcp_stream.into_std()?;
-    /// #   handle.await.expect("The task being joined has panicked");
-    ///     std_tcp_stream.set_nonblocking(false)?;
-    ///     std_tcp_stream.read_exact(&mut data)?;
-    /// #   assert_eq!(b"Hello world!", &data);
-    ///     Ok(())
-    /// }
-    /// ```
-    /// [`tokio::net::TcpStream`]: TcpStream
-    /// [`std::net::TcpStream`]: std::net::TcpStream
-    /// [`set_nonblocking`]: fn@std::net::TcpStream::set_nonblocking
     pub fn into_std(self) -> io::Result<std::net::TcpStream> {
         #[cfg(unix)]
         {
@@ -254,20 +179,6 @@ impl TcpStream {
         }
     }
 
-    /// Returns the local address that this stream is bound to.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    ///
-    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    /// println!("{:?}", stream.local_addr()?);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.io.local_addr()
     }
@@ -277,20 +188,6 @@ impl TcpStream {
         self.io.take_error()
     }
 
-    /// Returns the remote address that this stream is connected to.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    ///
-    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    /// println!("{:?}", stream.peer_addr()?);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         self.io.peer_addr()
     }
@@ -991,14 +888,10 @@ impl TcpStream {
     /// [`readable()`]: TcpStream::readable()
     /// [`writable()`]: TcpStream::writable()
     /// [`ready()`]: TcpStream::ready()
-    pub fn try_io<R>(
-        &self,
-        interest: Interest,
-        f: impl FnOnce() -> io::Result<R>,
-    ) -> io::Result<R> {
-        self.io
-            .registration()
-            .try_io(interest, || self.io.try_io(f))
+    pub fn try_io<R>(&self,
+                     interest: Interest,
+                     f: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
+        self.io.registration().try_io(interest, || self.io.try_io(f))
     }
 
     /// Reads or writes from the socket using a user-provided IO operation.
@@ -1026,15 +919,10 @@ impl TcpStream {
     /// The closure should perform only one type of IO operation, so it should not
     /// require more than one ready state. This method may panic or sleep forever
     /// if it is called with a combined interest.
-    pub async fn async_io<R>(
-        &self,
-        interest: Interest,
-        mut f: impl FnMut() -> io::Result<R>,
-    ) -> io::Result<R> {
-        self.io
-            .registration()
-            .async_io(interest, || self.io.try_io(&mut f))
-            .await
+    pub async fn async_io<R>(&self,
+                             interest: Interest,
+                             mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
+        self.io.registration().async_io(interest, || self.io.try_io(&mut f)).await
     }
 
     /// Receives data on the socket from the remote address to which it is
@@ -1075,10 +963,7 @@ impl TcpStream {
     /// [`read`]: fn@crate::io::AsyncReadExt::read
     /// [`AsyncReadExt`]: trait@crate::io::AsyncReadExt
     pub async fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.io
-            .registration()
-            .async_io(Interest::READABLE, || self.io.peek(buf))
-            .await
+        self.io.registration().async_io(Interest::READABLE, || self.io.peek(buf)).await
     }
 
     /// Shuts down the read, write, or both halves of this connection.
@@ -1091,47 +976,10 @@ impl TcpStream {
     }
 
     /// Gets the value of the `TCP_NODELAY` option on this socket.
-    ///
-    /// For more information about this option, see [`set_nodelay`].
-    ///
-    /// [`set_nodelay`]: TcpStream::set_nodelay
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    ///
-    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    /// println!("{:?}", stream.nodelay()?);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn nodelay(&self) -> io::Result<bool> {
         self.io.nodelay()
     }
 
-    /// Sets the value of the `TCP_NODELAY` option on this socket.
-    ///
-    /// If set, this option disables the Nagle algorithm. This means that
-    /// segments are always sent as soon as possible, even if there is only a
-    /// small amount of data. When not set, data is buffered until there is a
-    /// sufficient amount to send out, thereby avoiding the frequent sending of
-    /// small packets.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    ///
-    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    /// stream.set_nodelay(true)?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
         self.io.set_nodelay(nodelay)
     }

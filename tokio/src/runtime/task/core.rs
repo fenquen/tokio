@@ -300,9 +300,9 @@ impl<T: Future, S: Schedule> Core<T, S> {
     /// `self` must also be pinned. This is handled by storing the task on the  heap.
     pub(super) fn poll(&self, mut context: Context<'_>) -> Poll<T::Output> {
         let res = {
-            self.coreStage.stage.with_mut(|ptr| {
+            self.coreStage.stage.with_mut(|stagePtr| {
                 // Safety: The caller ensures mutual exclusion to the field.
-                let future = match unsafe { &mut *ptr } {
+                let future = match unsafe { &mut *stagePtr } {
                     Stage::Running(future) => future,
                     _ => unreachable!("unexpected stage"),
                 };

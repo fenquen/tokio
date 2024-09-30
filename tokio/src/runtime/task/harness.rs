@@ -155,7 +155,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
             }
             PollFuture::Complete => self.complete(), // Poll::Ready 对应
             PollFuture::Dealloc => self.dealloc(),
-            PollFuture::Done => (),
+            PollFuture::DoNothing => (),
         }
     }
 
@@ -163,8 +163,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
     ///
     /// If the return value is Notified, the caller is given ownership of two ref-counts.
     ///
-    /// If the return value is Complete, the caller is given ownership of a
-    /// single ref-count, which should be passed on to `complete`.
+    /// If the return value is Complete, the caller is given ownership of a single ref-count, which should be passed on to `complete`.
     ///
     /// If the return value is `Dealloc`, then this call consumed the last ref-count and the caller should call `dealloc`.
     ///
@@ -172,6 +171,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
     fn poll_inner(&self) -> PollFuture {
         use super::state::{TransitionToIdle, TransitionToRunning};
 
+        // transition2Running 可能调用 unset_notified()
         match self.state().transition2Running() {
             TransitionToRunning::Success => {
                 let header_ptr = self.header_ptr();
@@ -184,7 +184,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
                 }
 
                 match self.state().transition2Idle() {
-                    TransitionToIdle::Ok => PollFuture::Done,
+                    TransitionToIdle::Ok => PollFuture::DoNothing,
                     TransitionToIdle::OkNotified => PollFuture::Notified,
                     TransitionToIdle::OkDealloc => PollFuture::Dealloc,
                     TransitionToIdle::Cancelled => {
@@ -198,7 +198,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
                 cancel_task(self.core());
                 PollFuture::Complete
             }
-            TransitionToRunning::Failed => PollFuture::Done,
+            TransitionToRunning::Failed => PollFuture::DoNothing,
             TransitionToRunning::Dealloc => PollFuture::Dealloc,
         }
     }
@@ -422,7 +422,7 @@ enum PollFuture {
     Complete,
     /// 发生在transition2Idle时候发现已是notified了
     Notified,
-    Done,
+    DoNothing,
     Dealloc,
 }
 
@@ -444,7 +444,7 @@ fn panic_result_to_join_error(task_id: Id, res: Result<(), Box<dyn Any + Send + 
 }
 
 /// Polls the future. If the future completes, the output is written to the stage field.
-fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Poll<()> {
+fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, context: Context<'_>) -> Poll<()> {
     let output = panic::catch_unwind(panic::AssertUnwindSafe(|| {
         struct Guard<'a, T: Future, S: Schedule> {
             core: &'a Core<T, S>,
@@ -459,7 +459,7 @@ fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, cx: Context<'_>) -> Po
 
         let guard = Guard { core };
 
-        let res = guard.core.poll(cx);
+        let res = guard.core.poll(context);
 
         // 到了这边说明上边的guard.core.poll(cx)成功调用了 自然是用不到为了应对panic的drop了
         mem::forget(guard);

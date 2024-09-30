@@ -120,7 +120,7 @@ impl<E: AioSource> Aio<E> {
     fn new_with_interest(io: E, interest: Interest) -> io::Result<Self> {
         let mut io = MioSource(io);
         let handle = scheduler::SchedulerHandleEnum::current();
-        let registration = Registration::new_with_interest_and_handle(&mut io, interest, handle)?;
+        let registration = Registration::register(&mut io, interest, handle)?;
         Ok(Self { io, registration })
     }
 

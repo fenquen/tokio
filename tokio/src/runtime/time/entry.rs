@@ -555,21 +555,13 @@ impl TimerEntry {
 
         if reregister {
             unsafe {
-                self.driver()
-                    .reRegister(&self.driver.driver().ioHandleEnum, tick, self.inner().into());
+                self.driver().reRegister(&self.driver.driver().ioHandleEnum, tick, self.inner().into());
             }
         }
     }
 
-    pub(crate) fn poll_elapsed(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), super::Error>> {
-        assert!(
-            !self.driver().is_shutdown(),
-            "{}",
-            crate::util::error::RUNTIME_SHUTTING_DOWN_ERROR
-        );
+    pub(crate) fn poll_elapsed(mut self: Pin<&mut Self>, cx: &mut Context<'_>, ) -> Poll<Result<(), super::Error>> {
+        assert!(!self.driver().is_shutdown(), "{}", crate::util::error::RUNTIME_SHUTTING_DOWN_ERROR);
 
         if !self.registered {
             let deadline = self.deadline;
@@ -581,11 +573,6 @@ impl TimerEntry {
 
     pub(crate) fn driver(&self) -> &super::TimeDriverHandle {
         self.driver.driver().time()
-    }
-
-    #[cfg(all(tokio_unstable, feature = "tracing"))]
-    pub(crate) fn clock(&self) -> &super::Clock {
-        self.driver.driver().clock()
     }
 }
 

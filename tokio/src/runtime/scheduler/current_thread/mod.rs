@@ -326,7 +326,7 @@ impl Context {
         // instead of parking the thread
         if core.tasks.is_empty() {
             let (c, ()) = self.enter(core, || {
-                driver.park(&handle.driverHandle);
+                driver.park_timeout(&handle.driverHandle,None);
                 self.defer.wake();
             });
 
@@ -347,7 +347,7 @@ impl Context {
         let mut driver = core.driver.take().expect("driver missing");
 
         let (mut core, ()) = self.enter(core, || {
-            driver.park_timeout(&handle.driverHandle, Duration::from_millis(0));
+            driver.park_timeout(&handle.driverHandle, Some(Duration::from_millis(0)));
             self.defer.wake();
         });
 

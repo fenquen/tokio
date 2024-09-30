@@ -31,14 +31,7 @@ macro_rules! new {
 
 impl<T> TryLock<T> {
     #[cfg(not(loom))]
-    /// Create a new `TryLock`
     pub(crate) const fn new(data: T) -> TryLock<T> {
-        new!(data)
-    }
-
-    #[cfg(loom)]
-    /// Create a new `TryLock`
-    pub(crate) fn new(data: T) -> TryLock<T> {
         new!(data)
     }
 

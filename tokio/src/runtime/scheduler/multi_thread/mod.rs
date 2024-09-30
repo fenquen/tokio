@@ -1,7 +1,6 @@
 //! Multi-threaded runtime
 
 mod counters;
-use counters::Counters;
 
 mod handle;
 pub(crate) use handle::MultiThreadSchedulerHandle;
@@ -42,7 +41,7 @@ pub(crate) struct MultiThread;
 impl MultiThread {
     pub(crate) fn new(coreThreadCount: usize,
                       driver: Driver,
-                      driver_handle: driver::DriverHandle,
+                      driverHandle: driver::DriverHandle,
                       blocking_spawner: blocking::Spawner,
                       seed_generator: RngSeedGenerator,
                       config: Config) -> (MultiThread, Arc<MultiThreadSchedulerHandle>, Launcher) {
@@ -51,7 +50,7 @@ impl MultiThread {
         let (multiThreadSchedulerHandle, launcher) =
             worker::create(coreThreadCount,
                            parker,
-                           driver_handle,
+                           driverHandle,
                            blocking_spawner,
                            seed_generator,
                            config);

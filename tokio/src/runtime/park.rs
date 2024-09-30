@@ -35,8 +35,6 @@ impl ParkThread {
         // wasm doesn't have threads, so just sleep.
         #[cfg(not(target_family = "wasm"))]
         self.inner.park_timeout(duration);
-        #[cfg(target_family = "wasm")]
-        std::thread::sleep(duration);
     }
 
     pub(crate) fn shutdown(&mut self) {

@@ -29,7 +29,7 @@ impl ProcessDriver {
         GlobalOrphanQueue::reap_orphans(&self.signalDriverHandle);
     }
 
-    pub(crate) fn shutdown(&mut self, handle: &driver::DriverHandle) {
+    pub(crate) fn shutdown(&mut self, handle: &DriverHandle) {
         self.signalDriver.shutdown(handle);
     }
 }

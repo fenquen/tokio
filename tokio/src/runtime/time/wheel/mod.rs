@@ -11,8 +11,7 @@ use super::EntryList;
 
 /// Timing wheel implementation.
 ///
-/// This type provides the hashed timing wheel implementation that backs `Timer`
-/// and `DelayQueue`.
+/// This type provides the hashed timing wheel implementation that backs `Timer` and `DelayQueue`.
 ///
 /// The structure is generic over `T: Stack`. This allows handling timeout data
 /// being stored on the heap or in a slab. In order to support the latter case,
@@ -86,10 +85,7 @@ impl Wheel {
     /// This function registers item into an intrusive linked list. The caller
     /// must ensure that `item` is pinned and will not be dropped without first
     /// being deregistered.
-    pub(crate) unsafe fn insert(
-        &mut self,
-        item: TimerHandle,
-    ) -> Result<u64, (TimerHandle, InsertError)> {
+    pub(crate) unsafe fn insert(&mut self, item: TimerHandle) -> Result<u64, (TimerHandle, InsertError)> {
         let when = item.sync_when();
 
         if when <= self.elapsed {
@@ -103,12 +99,7 @@ impl Wheel {
             self.levels[level].add_entry(item);
         }
 
-        debug_assert!({
-            self.levels[level]
-                .next_expiration(self.elapsed)
-                .map(|e| e.deadline >= self.elapsed)
-                .unwrap_or(true)
-        });
+        debug_assert!({ self.levels[level].next_expiration(self.elapsed).map(|e| e.deadline >= self.elapsed).unwrap_or(true) });
 
         Ok(when)
     }
@@ -120,12 +111,7 @@ impl Wheel {
             if when == u64::MAX {
                 self.pending.remove(item);
             } else {
-                debug_assert!(
-                    self.elapsed <= when,
-                    "elapsed={}; when={}",
-                    self.elapsed,
-                    when
-                );
+                debug_assert!(self.elapsed <= when, "elapsed={}; when={}", self.elapsed, when);
 
                 let level = self.level_for(when);
                 self.levels[level].remove_entry(item);
@@ -179,8 +165,7 @@ impl Wheel {
         // Check all levels
         for (level_num, level) in self.levels.iter().enumerate() {
             if let Some(expiration) = level.next_expiration(self.elapsed) {
-                // There cannot be any expirations at a higher level that happen
-                // before this one.
+                // There cannot be any expirations at a higher level that happen before this one.
                 debug_assert!(self.no_expirations_before(level_num + 1, expiration.deadline));
 
                 return Some(expiration);
@@ -251,12 +236,7 @@ impl Wheel {
     }
 
     fn set_elapsed(&mut self, when: u64) {
-        assert!(
-            self.elapsed <= when,
-            "elapsed={:?}; when={:?}",
-            self.elapsed,
-            when
-        );
+        assert!(self.elapsed <= when, "elapsed={:?}; when={:?}", self.elapsed, when);
 
         if when > self.elapsed {
             self.elapsed = when;

@@ -3,14 +3,14 @@ use std::fmt;
 
 /// Handle to time driver instance.
 pub(crate) struct TimeDriverHandle {
-    pub(super) time_source: TimeSource,
+    pub(super) timeSource: TimeSource,
     pub(super) inner: super::Inner,
 }
 
 impl TimeDriverHandle {
     /// Returns the time source associated with this handle.
     pub(crate) fn time_source(&self) -> &TimeSource {
-        &self.time_source
+        &self.timeSource
     }
 
     /// Checks whether the driver has been shutdown.
