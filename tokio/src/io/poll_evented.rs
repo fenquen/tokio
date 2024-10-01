@@ -72,21 +72,25 @@ pub(crate) struct PollEvented<E: Source> {
 impl<E: Source> PollEvented<E> {
     #[track_caller]
     #[cfg_attr(feature = "signal", allow(unused))]
-    pub(crate) fn new(io: E) -> io::Result<Self> {
-        PollEvented::new_with_interest_and_handle(io, Interest::READABLE | Interest::WRITABLE, SchedulerHandleEnum::current())
+    pub(crate) fn new(mioSource: E) -> io::Result<PollEvented<E>> {
+        PollEvented::new_with_interest_and_handle(mioSource,
+                                                  Interest::READABLE | Interest::WRITABLE,
+                                                  SchedulerHandleEnum::current())
     }
 
     #[track_caller]
     #[cfg_attr(feature = "signal", allow(unused))]
-    pub(crate) fn new_with_interest(io: E, interest: Interest) -> io::Result<Self> {
-        Self::new_with_interest_and_handle(io, interest, SchedulerHandleEnum::current())
+    pub(crate) fn new_with_interest(mioSource: E, interest: Interest) -> io::Result<PollEvented<E>> {
+        Self::new_with_interest_and_handle(mioSource, interest, SchedulerHandleEnum::current())
     }
 
     #[track_caller]
-    pub(crate) fn new_with_interest_and_handle(mut io: E, interest: Interest, handle: SchedulerHandleEnum) -> io::Result<Self> {
-        let registration = Registration::register(&mut io, interest, handle)?;
-        Ok(Self {
-            mioSource: Some(io),
+    pub(crate) fn new_with_interest_and_handle(mut mioSource: E,
+                                               interest: Interest,
+                                               schedulerHandleEnum: SchedulerHandleEnum) -> io::Result<Self> {
+        let registration = Registration::register(&mut mioSource, interest, schedulerHandleEnum)?;
+        Ok(PollEvented {
+            mioSource: Some(mioSource),
             registration,
         })
     }
@@ -107,10 +111,7 @@ impl<E: Source> PollEvented<E> {
 
     #[cfg(all(feature = "process", target_os = "linux"))]
     pub(crate) fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.registration
-            .poll_read_ready(cx)
-            .map_err(io::Error::from)
-            .map_ok(|_| ())
+        self.registration.poll_read_ready(cx).map_err(io::Error::from).map_ok(|_| ())
     }
 
     /// Re-register under new runtime with `interest`.
@@ -124,124 +125,118 @@ impl<E: Source> PollEvented<E> {
     }
 }
 
-feature! {
-    #![any(feature = "net", all(unix, feature = "process"))]
+#[cfg(any(feature = "net", all(unix, feature = "process")))]
+use crate::io::ReadBuf;
+#[cfg(any(feature = "net", all(unix, feature = "process")))]
+use std::task::{Context, Poll};
 
-    use crate::io::ReadBuf;
-    use std::task::{Context, Poll};
+#[cfg(any(feature = "net", all(unix, feature = "process")))]
+impl<E: Source> PollEvented<E> {
+    // Safety: The caller must ensure that `E` can read into uninitialized memory
+    pub(crate) unsafe fn poll_read<'a>(&'a self,
+                                       cx: &mut Context<'_>,
+                                       buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>>
+    where
+        &'a E: io::Read + 'a,
+    {
+        use std::io::Read;
 
-    impl<E: Source> PollEvented<E> {
-        // Safety: The caller must ensure that `E` can read into uninitialized memory
-        pub(crate) unsafe fn poll_read<'a>(
-            &'a self,
-            cx: &mut Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> Poll<io::Result<()>>
-        where
-            &'a E: io::Read + 'a,
-        {
-            use std::io::Read;
+        loop {
+            let evt = ready!(self.registration.poll_read_ready(cx))?;
 
-            loop {
-                let evt = ready!(self.registration.poll_read_ready(cx))?;
+            let b = &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]);
 
-                let b = &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]);
+            // used only when the cfgs below apply
+            #[allow(unused_variables)]
+            let len = b.len();
 
-                // used only when the cfgs below apply
-                #[allow(unused_variables)]
-                let len = b.len();
-
-                match self.mioSource.as_ref().unwrap().read(b) {
-                    Ok(n) => {
-                        // When mio is using the epoll or kqueue selector, reading a partially full
-                        // buffer is sufficient to show that the socket buffer has been drained.
-                        //
-                        // This optimization does not work for level-triggered selectors such as
-                        // windows or when poll is used.
-                        //
-                        // Read more:
-                        // https://github.com/tokio-rs/tokio/issues/5866
-                        #[cfg(all(
-                            not(mio_unsupported_force_poll_poll),
-                            any(
-                                // epoll
-                                target_os = "android",
-                                target_os = "illumos",
-                                target_os = "linux",
-                                target_os = "redox",
-                                // kqueue
-                                target_os = "dragonfly",
-                                target_os = "freebsd",
-                                target_os = "ios",
-                                target_os = "macos",
-                                target_os = "netbsd",
-                                target_os = "openbsd",
-                                target_os = "tvos",
-                                target_os = "visionos",
-                                target_os = "watchos",
-                            )
-                        ))]
-                        if 0 < n && n < len {
-                            self.registration.clear_readiness(evt);
-                        }
-
-                        // Safety: We trust `TcpStream::read` to have filled up `n` bytes in the
-                        // buffer.
-                        buf.assume_init(n);
-                        buf.advance(n);
-                        return Poll::Ready(Ok(()));
-                    },
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+            match self.mioSource.as_ref().unwrap().read(b) {
+                Ok(n) => {
+                    // When mio is using the epoll or kqueue selector, reading a partially full
+                    // buffer is sufficient to show that the socket buffer has been drained.
+                    //
+                    // This optimization does not work for level-triggered selectors such as
+                    // windows or when poll is used.
+                    //
+                    // Read more:
+                    // https://github.com/tokio-rs/tokio/issues/5866
+                    #[cfg(all(
+                        not(mio_unsupported_force_poll_poll),
+                        any(
+                            // epoll
+                            target_os = "android",
+                            target_os = "illumos",
+                            target_os = "linux",
+                            target_os = "redox",
+                            // kqueue
+                            target_os = "dragonfly",
+                            target_os = "freebsd",
+                            target_os = "ios",
+                            target_os = "macos",
+                            target_os = "netbsd",
+                            target_os = "openbsd",
+                            target_os = "tvos",
+                            target_os = "visionos",
+                            target_os = "watchos",
+                        )
+                    ))]
+                    if 0 < n && n < len {
                         self.registration.clear_readiness(evt);
                     }
-                    Err(e) => return Poll::Ready(Err(e)),
+
+                    // Safety: We trust `TcpStream::read` to have filled up `n` bytes in the
+                    // buffer.
+                    buf.assume_init(n);
+                    buf.advance(n);
+                    return Poll::Ready(Ok(()));
                 }
-            }
-        }
-
-        pub(crate) fn poll_write<'a>(&'a self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>>
-        where
-            &'a E: io::Write + 'a,
-        {
-            use std::io::Write;
-
-            loop {
-                let evt = ready!(self.registration.poll_write_ready(cx))?;
-
-                match self.mioSource.as_ref().unwrap().write(buf) {
-                    Ok(n) => {
-                        // if we write only part of our buffer, this is sufficient on unix to show
-                        // that the socket buffer is full.  Unfortunately this assumption
-                        // fails for level-triggered selectors (like on Windows or poll even for
-                        // UNIX): https://github.com/tokio-rs/tokio/issues/5866
-                        if n > 0 && (!cfg!(windows) && !cfg!(mio_unsupported_force_poll_poll) && n < buf.len()) {
-                            self.registration.clear_readiness(evt);
-                        }
-
-                        return Poll::Ready(Ok(n));
-                    },
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        self.registration.clear_readiness(evt);
-                    }
-                    Err(e) => return Poll::Ready(Err(e)),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    self.registration.clear_readiness(evt);
                 }
+                Err(e) => return Poll::Ready(Err(e)),
             }
-        }
-
-        #[cfg(any(feature = "net", feature = "process"))]
-        pub(crate) fn poll_write_vectored<'a>(
-            &'a self,
-            cx: &mut Context<'_>,
-            bufs: &[io::IoSlice<'_>],
-        ) -> Poll<io::Result<usize>>
-        where
-            &'a E: io::Write + 'a,
-        {
-            use std::io::Write;
-            self.registration.poll_write_io(cx, || self.mioSource.as_ref().unwrap().write_vectored(bufs))
         }
     }
+
+    pub(crate) fn poll_write<'a>(&'a self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>>
+    where
+        &'a E: io::Write + 'a,
+    {
+        use std::io::Write;
+
+        loop {
+            let evt = ready!(self.registration.poll_write_ready(cx))?;
+
+            match self.mioSource.as_ref().unwrap().write(buf) {
+                Ok(n) => {
+                    // if we write only part of our buffer, this is sufficient on unix to show
+                    // that the socket buffer is full.  Unfortunately this assumption
+                    // fails for level-triggered selectors (like on Windows or poll even for
+                    // UNIX): https://github.com/tokio-rs/tokio/issues/5866
+                    if n > 0 && (!cfg!(windows) && !cfg!(mio_unsupported_force_poll_poll) && n < buf.len()) {
+                        self.registration.clear_readiness(evt);
+                    }
+
+                    return Poll::Ready(Ok(n));
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    self.registration.clear_readiness(evt);
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+
+    #[cfg(any(feature = "net", feature = "process"))]
+    pub(crate) fn poll_write_vectored<'a>(&'a self, cx: &mut Context<'_>, bufs: &[io::IoSlice<'_>]) -> Poll<io::Result<usize>>
+    where
+        &'a E: io::Write + 'a,
+    {
+        use std::io::Write;
+        self.registration.poll_write_io(cx, || self.mioSource.as_ref().unwrap().write_vectored(bufs))
+    }
 }
+
 
 impl<E: Source> UnwindSafe for PollEvented<E> {}
 

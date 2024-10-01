@@ -43,8 +43,7 @@ impl Ready {
 
     /// Returns a `Ready` representing readiness for all operations.
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    pub const ALL: Ready =
-        Ready(READABLE | WRITABLE | READ_CLOSED | WRITE_CLOSED | ERROR | PRIORITY);
+    pub const ALL: Ready = Ready(READABLE | WRITABLE | READ_CLOSED | WRITE_CLOSED | ERROR | PRIORITY);
 
     /// Returns a `Ready` representing readiness for all operations.
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
@@ -141,10 +140,6 @@ impl Ready {
         Ready(val & Ready::ALL.as_usize())
     }
 
-    /// Returns a `usize` representation of the `Ready` value.
-    ///
-    /// This function is mainly provided to allow the caller to store a
-    /// readiness value in an `AtomicUsize`.
     pub(crate) fn as_usize(self) -> usize {
         self.0
     }

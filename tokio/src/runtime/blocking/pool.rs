@@ -336,9 +336,6 @@ where
 }
 
 cfg_fs! {
-    #[cfg_attr(any(all(loom, not(test)), // the function is covered by loom tests
-        test
-    ), allow(dead_code))]
     /// Runs the provided function on an executor dedicated to blocking
     /// operations. Tasks will be scheduled as mandatory, meaning they are
     /// guaranteed to run unless a shutdown is already taking place. In case a

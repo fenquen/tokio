@@ -2,9 +2,8 @@
 
 pub(crate) mod listener;
 
-cfg_not_wasi! {
-    pub(crate) mod socket;
-}
+#[cfg(not(target_os = "wasi"))]
+pub(crate) mod socket;
 
 mod split;
 pub use split::{ReadHalf, WriteHalf};

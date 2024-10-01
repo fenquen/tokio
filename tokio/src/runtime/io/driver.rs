@@ -8,7 +8,7 @@ use crate::io::ready::Ready;
 use crate::loom::sync::Mutex;
 use crate::runtime::driver;
 use crate::runtime::io::registration_set;
-use crate::runtime::io::{RegistrationSet, ScheduledIo};
+use crate::runtime::io::{RegistrationSet, ScheduledIO};
 
 use mio::event::Source;
 use std::fmt;
@@ -49,7 +49,7 @@ pub(crate) struct IODriverHandle {
 pub(crate) struct ReadyEvent {
     pub(super) tick: u8,
     pub(crate) ready: Ready,
-    pub(super) is_shutdown: bool,
+    pub(super) isShutdown: bool,
 }
 
 cfg_net_unix!(
@@ -58,7 +58,7 @@ cfg_net_unix!(
             Self {
                 ready,
                 tick: self.tick,
-                is_shutdown: self.is_shutdown,
+                isShutdown: self.isShutdown,
             }
         }
     }
@@ -121,7 +121,7 @@ impl IODriver {
         }
     }
 
-    pub fn turn(&mut self, ioDriverHandle: &IODriverHandle, maxWaitDuration: Option<Duration>) {
+    pub fn parkTimeout(&mut self, ioDriverHandle: &IODriverHandle, timeout: Option<Duration>) {
         debug_assert!(!ioDriverHandle.registrationSet.is_shutdown(&ioDriverHandle.synced.lock()));
 
         ioDriverHandle.release_pending_registrations();
@@ -129,7 +129,7 @@ impl IODriver {
         let mioEvents = &mut self.mioEvents;
 
         // Block waiting for an event to happen, peeling out how many events happened.
-        match self.mioPoll.poll(mioEvents, maxWaitDuration) {
+        match self.mioPoll.poll(mioEvents, timeout) {
             Ok(()) => {}
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(e) => panic!("unexpected error when polling the I/O driver: {:?}", e),
@@ -150,17 +150,17 @@ impl IODriver {
 
                 // use std::ptr::from_exposed_addr when stable
                 // epoll的attachment
-                let scheduledIOPtr: *const ScheduledIo = token.0 as *const _;
+                let scheduledIOPtr: *const ScheduledIO = token.0 as *const _;
 
                 // Safety: we ensure that the pointers used as tokens are not freed
                 // until they are both deregistered from mio **and** we know the I/O
                 // driver is not concurrently polling. The I/O driver holds ownership of
                 // an `Arc<ScheduledIo>` so we can safely cast this to a ref.
-                let scheduleInfo = unsafe { &*scheduledIOPtr };
+                let scheduledIO = unsafe { &*scheduledIOPtr };
 
-                scheduleInfo.set_readiness(Tick::Set, |currentReady| currentReady | ready);
+                scheduledIO.setReadyValue(Tick::Set, |currentReady| currentReady | ready);
 
-                scheduleInfo.wake(ready);
+                scheduledIO.wake(ready);
 
                 ready_count += 1;
             }
@@ -189,24 +189,22 @@ impl IODriverHandle {
         self.mioWaker.wake().expect("failed to wake I/O driver");
     }
 
-    pub(super) fn register(&self, mioSource: &mut impl Source, interest: Interest) -> io::Result<Arc<ScheduledIo>> {
-        let scheduled_io = self.registrationSet.register(&mut self.synced.lock())?;
-        let token = scheduled_io.token();
+    pub(super) fn register(&self, mioSource: &mut impl Source, interest: Interest) -> io::Result<Arc<ScheduledIO>> {
+        let scheduledIO = self.registrationSet.register(&mut self.synced.lock())?;
 
         // we should remove the `scheduled_io` from the `registrations` set if registering
-        // the `source` with the OS fails. Otherwise it will leak the `scheduled_io`.
-        if let Err(e) = self.mioRegistry.register(mioSource, token, interest.to_mio()) {
+        // the `source` with the OS fails. Otherwise, it will leak the `scheduled_io`.
+        if let Err(e) = self.mioRegistry.register(mioSource, scheduledIO.token(), interest.to_mio()) {
             // safety: `scheduled_io` is part of the `registrations` set.
-            unsafe { self.registrationSet.remove(&mut self.synced.lock(), &scheduled_io) };
+            unsafe { self.registrationSet.remove(&mut self.synced.lock(), &scheduledIO) };
             return Err(e);
         }
 
-        Ok(scheduled_io)
+        Ok(scheduledIO)
     }
 
     /// Deregisters an I/O resource from the reactor.
-    pub(super) fn deregister(&self, registration: &Arc<ScheduledIo>, source: &mut impl Source) -> io::Result<()> {
-        // Deregister the source with the OS poller **first**
+    pub(super) fn deregister(&self, registration: &Arc<ScheduledIO>, source: &mut impl Source) -> io::Result<()> {
         self.mioRegistry.deregister(source)?;
 
         if self.registrationSet.deregister(&mut self.synced.lock(), registration) {

@@ -215,10 +215,7 @@ impl<'a> ReadBuf<'a> {
     #[inline]
     #[track_caller]
     pub fn set_filled(&mut self, n: usize) {
-        assert!(
-            n <= self.initialized,
-            "filled must not become larger than initialized"
-        );
+        assert!(n <= self.initialized, "filled must not become larger than initialized");
         self.filled = n;
     }
 
@@ -273,7 +270,6 @@ impl<'a> ReadBuf<'a> {
 }
 
 #[cfg(feature = "io-util")]
-#[cfg_attr(docsrs, doc(cfg(feature = "io-util")))]
 unsafe impl<'a> bytes::BufMut for ReadBuf<'a> {
     fn remaining_mut(&self) -> usize {
         self.remaining()

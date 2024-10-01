@@ -259,8 +259,6 @@ impl<L: Link> Default for LinkedList<L, L::Target> {
     }
 }
 
-// ===== impl DrainFilter =====
-
 cfg_io_driver_impl! {
     pub(crate) struct DrainFilter<'a, T: Link, F> {
         list: &'a mut LinkedList<T, T::Target>,
@@ -304,8 +302,6 @@ cfg_io_driver_impl! {
         }
     }
 }
-
-// ===== impl GuardedLinkedList =====
 
 feature! {
     #![any(
@@ -436,10 +432,7 @@ impl<T> fmt::Debug for Pointers<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let prev = self.get_prev();
         let next = self.get_next();
-        f.debug_struct("Pointers")
-            .field("prev", &prev)
-            .field("next", &next)
-            .finish()
+        f.debug_struct("Pointers").field("prev", &prev).field("next", &next).finish()
     }
 }
 

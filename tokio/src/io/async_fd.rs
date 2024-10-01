@@ -584,7 +584,7 @@ impl<T: AsRawFd> AsyncFd<T> {
     /// }
     /// ```
     pub async fn ready(&self, interest: Interest) -> io::Result<AsyncFdReadyGuard<'_, T>> {
-        let event = self.registration.readiness(interest).await?;
+        let event = self.registration.pollReadinessAsync(interest).await?;
 
         Ok(AsyncFdReadyGuard {
             async_fd: self,
@@ -683,7 +683,7 @@ impl<T: AsRawFd> AsyncFd<T> {
         &mut self,
         interest: Interest,
     ) -> io::Result<AsyncFdReadyMutGuard<'_, T>> {
-        let event = self.registration.readiness(interest).await?;
+        let event = self.registration.pollReadinessAsync(interest).await?;
 
         Ok(AsyncFdReadyMutGuard {
             async_fd: self,

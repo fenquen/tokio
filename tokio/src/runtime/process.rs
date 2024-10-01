@@ -24,7 +24,7 @@ impl ProcessDriver {
     }
 
     pub(crate) fn park_timeout(&mut self, driverHandle: &DriverHandle, duration: Option<Duration>) {
-        self.signalDriver.ioDriver.turn(driverHandle.io(), duration);
+        self.signalDriver.ioDriver.parkTimeout(driverHandle.io(), duration);
         self.signalDriver.process();
         GlobalOrphanQueue::reap_orphans(&self.signalDriverHandle);
     }

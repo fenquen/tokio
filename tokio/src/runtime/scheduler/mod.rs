@@ -23,13 +23,15 @@ cfg_rt_multi_thread! {
 }
 
 use crate::runtime::driver;
+use crate::runtime::scheduler::current_thread::CurrentThreadSchedulerHandle;
+use crate::runtime::scheduler::multi_thread::MultiThreadSchedulerHandle;
 
 #[derive(Debug, Clone)]
 pub(crate) enum SchedulerHandleEnum {
     #[cfg(feature = "rt")]
-    CurrentThread(Arc<current_thread::CurrentThreadSchedulerHandle>),
+    CurrentThread(Arc<CurrentThreadSchedulerHandle>),
     #[cfg(feature = "rt-multi-thread")]
-    MultiThread(Arc<multi_thread::MultiThreadSchedulerHandle>),
+    MultiThread(Arc<MultiThreadSchedulerHandle>),
 }
 
 #[cfg(feature = "rt")]

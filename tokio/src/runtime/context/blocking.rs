@@ -15,8 +15,7 @@ pub(crate) struct BlockingRegionGuard {
 pub(crate) struct DisallowBlockInPlaceGuard(bool);
 
 pub(crate) fn try_enter_blocking_region() -> Option<BlockingRegionGuard> {
-    CONTEXT
-        .try_with(|c| {
+    CONTEXT.try_with(|c| {
             if c.enterRuntime.get().is_entered() {
                 None
             } else {
@@ -24,19 +23,14 @@ pub(crate) fn try_enter_blocking_region() -> Option<BlockingRegionGuard> {
             }
             // If accessing the thread-local fails, the thread is terminating
             // and thread-locals are being destroyed. Because we don't know if
-            // we are currently in a runtime or not, we default to being
-            // permissive.
-        })
-        .unwrap_or_else(|_| Some(BlockingRegionGuard::new()))
+            // we are currently in a runtime or not, we default to being permissive
+        }).unwrap_or_else(|_| Some(BlockingRegionGuard::new()))
 }
 
 /// Disallows blocking in the current runtime context until the guard is dropped.
 pub(crate) fn disallow_block_in_place() -> DisallowBlockInPlaceGuard {
     let reset = CONTEXT.with(|c| {
-        if let EnterRuntime::Entered {
-            allow_block_in_place: true,
-        } = c.enterRuntime.get()
-        {
+        if let EnterRuntime::Entered { allow_block_in_place: true, } = c.enterRuntime.get() {
             c.enterRuntime.set(EnterRuntime::Entered {
                 allow_block_in_place: false,
             });

@@ -209,8 +209,7 @@ cfg_coop! {
     }
 
     impl Budget {
-        /// Decrements the budget. Returns `true` if successful. Decrementing fails
-        /// when there is not enough remaining budget.
+        /// Decrements the budget. Returns `true` if successful. Decrementing fails when there is not enough remaining budget.
         fn decrement(&mut self) -> BudgetDecrement {
             if let Some(num) = &mut self.0 {
                 if *num > 0 {

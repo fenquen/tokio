@@ -8,15 +8,7 @@ use std::marker::Unpin;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
-/// Tries to read some bytes directly into the given `buf` in asynchronous
-/// manner, returning a future type.
-///
-/// The returned future will resolve to both the I/O stream and the buffer
-/// as well as the number of bytes read once the read operation is completed.
-pub(crate) fn read<'a, R>(reader: &'a mut R, buf: &'a mut [u8]) -> Read<'a, R>
-where
-    R: AsyncRead + Unpin + ?Sized,
-{
+pub(crate) fn read<'a, R: AsyncRead + Unpin + ?Sized>(reader: &'a mut R, buf: &'a mut [u8]) -> Read<'a, R> {
     Read {
         reader,
         buf,
@@ -25,10 +17,6 @@ where
 }
 
 pin_project! {
-    /// A future which can be used to easily read available number of bytes to fill
-    /// a buffer.
-    ///
-    /// Created by the [`read`] function.
     #[derive(Debug)]
     #[must_use = "futures do nothing unless you `.await` or poll them"]
     pub struct Read<'a, R: ?Sized> {
@@ -40,10 +28,7 @@ pin_project! {
     }
 }
 
-impl<R> Future for Read<'_, R>
-where
-    R: AsyncRead + Unpin + ?Sized,
-{
+impl<R: AsyncRead + Unpin + ?Sized> Future for Read<'_, R> {
     type Output = io::Result<usize>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<usize>> {

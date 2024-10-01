@@ -277,23 +277,18 @@ pub use self::copy::copy;
 mod try_exists;
 pub use self::try_exists::try_exists;
 
-feature! {
-    #![unix]
+#[cfg(unix)]
+mod symlink;
 
-    mod symlink;
-    pub use self::symlink::symlink;
-}
+#[cfg(unix)]
+pub use self::symlink::symlink;
 
 use std::io;
 
 #[cfg(not(test))]
 use crate::blocking::spawn_blocking;
 
-pub(crate) async fn asyncify<F, T>(f: F) -> io::Result<T>
-where
-    F: FnOnce() -> io::Result<T> + Send + 'static,
-    T: Send + 'static,
-{
+pub(crate) async fn asyncify<F: FnOnce() -> io::Result<T> + Send + 'static, T: Send + 'static>(f: F) -> io::Result<T> {
     match spawn_blocking(f).await {
         Ok(res) => res,
         Err(_) => Err(io::Error::new(

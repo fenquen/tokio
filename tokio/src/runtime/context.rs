@@ -66,8 +66,7 @@ thread_local! {
             #[cfg(feature = "rt")]
             thread_id: Cell::new(None),
 
-            // Tracks the current runtime handle to use when spawning,
-            // accessing drivers, etc...
+            // Tracks the current runtime handle to use when spawning, accessing drivers, etc...
             #[cfg(feature = "rt")]
             schedulerHandleEnumCell: current::SchedulerHandleEnumCell::new(),
 

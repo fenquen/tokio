@@ -74,34 +74,19 @@ struct OwnedTasksInner<S: 'static> {
     closed: bool,
 }
 
-impl<S: 'static> OwnedTasks<S> {
-    pub(crate) fn new(num_cores: usize) -> Self {
-        let shard_size = Self::gen_shared_list_size(num_cores);
-        Self {
-            list: List::new(shard_size),
-            closed: AtomicBool::new(false),
-            id: get_next_id(),
-        }
-    }
-
+impl<S: Schedule + 'static> OwnedTasks<S> {
     /// Binds the provided task to this `OwnedTasks` instance. This fails if the `OwnedTasks` has been closed.
     pub(crate) fn bind<T: Future<Output: Send + 'static> + Send + 'static>(&self,
                                                                            task: T,
                                                                            scheduler: S,
-                                                                           id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>)
-    where
-        S: Schedule,
-    {
+                                                                           id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>) {
         let (task, notified, join) = super::newTask(task, scheduler, id);
         let notified = unsafe { self.bind_inner(task, notified) };
         (join, notified)
     }
 
     /// The part of `bind` that's the same for every type of future.
-    unsafe fn bind_inner(&self, task: Task<S>, notified: Notified<S>) -> Option<Notified<S>>
-    where
-        S: Schedule,
-    {
+    unsafe fn bind_inner(&self, task: Task<S>, notified: Notified<S>) -> Option<Notified<S>> {
         unsafe {
             // safety: We just created the task, so we have exclusive access to the field.
             task.header().set_owner_id(self.id);
@@ -122,29 +107,12 @@ impl<S: 'static> OwnedTasks<S> {
         Some(notified)
     }
 
-    /// Asserts that the given task is owned by this `OwnedTasks` and convert it to
-    /// a `LocalNotified`, giving the thread permission to poll this task.
-    #[inline]
-    pub(crate) fn assert_owner(&self, notified: Notified<S>) -> LocalNotified<S> {
-        debug_assert_eq!(notified.header().get_owner_id(), Some(self.id));
-
-        // safety: All tasks bound to this OwnedTasks are Send, so it is safe
-        // to poll it on this thread no matter what thread we are on.
-        LocalNotified {
-            task: notified.0,
-            _not_send: PhantomData,
-        }
-    }
-
     /// Shuts down all tasks in the collection. This call also closes the
     /// collection, preventing new items from being added.
     ///
     /// The parameter start determines which shard this method will start at.
     /// Using different values for each worker thread reduces contention.
-    pub(crate) fn close_and_shutdown_all(&self, start: usize)
-    where
-        S: Schedule,
-    {
+    pub(crate) fn close_and_shutdown_all(&self, start: usize) {
         self.closed.store(true, Ordering::Release);
         for i in start..self.get_shard_size() + start {
             loop {
@@ -156,6 +124,31 @@ impl<S: 'static> OwnedTasks<S> {
                     None => break,
                 }
             }
+        }
+    }
+}
+
+impl<S: 'static> OwnedTasks<S> {
+    pub(crate) fn new(num_cores: usize) -> Self {
+        let shard_size = Self::gen_shared_list_size(num_cores);
+        Self {
+            list: List::new(shard_size),
+            closed: AtomicBool::new(false),
+            id: get_next_id(),
+        }
+    }
+
+    /// Asserts that the given task is owned by this `OwnedTasks` and convert it to
+    /// a `LocalNotified`, giving the thread permission to poll this task.
+    #[inline]
+    pub(crate) fn assert_owner(&self, notified: Notified<S>) -> LocalNotified<S> {
+        debug_assert_eq!(notified.header().get_owner_id(), Some(self.id));
+
+        // safety: All tasks bound to this OwnedTasks are Send, so it is safe
+        // to poll it on this thread no matter what thread we are on.
+        LocalNotified {
+            task: notified.0,
+            _not_send: PhantomData,
         }
     }
 

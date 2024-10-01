@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "net"), allow(dead_code))]
 
 use crate::io::interest::Interest;
-use crate::runtime::io::{Direction, IODriverHandle, ReadyEvent, ScheduledIo};
-use crate::runtime::scheduler;
+use crate::runtime::io::{Direction, IODriverHandle, ReadyEvent, ScheduledIO};
+use crate::runtime::{coop, scheduler};
 
 use mio::event::Source;
 use std::io;
@@ -16,7 +16,7 @@ pub(crate) struct Registration {
     schedulerHandleEnum: SchedulerHandleEnum,
 
     /// Reference to state stored by the driver.
-    scheduledIo: Arc<ScheduledIo>,
+    scheduledIo: Arc<ScheduledIO>,
 }
 
 unsafe impl Send for Registration {}
@@ -111,7 +111,7 @@ impl Registration {
         let coop = ready!(crate::runtime::coop::poll_proceed(cx));
         let ev = ready!(self.scheduledIo.poll_readiness(cx, direction));
 
-        if ev.is_shutdown {
+        if ev.isShutdown {
             return Poll::Ready(Err(gone()));
         }
 
@@ -161,10 +161,10 @@ impl Registration {
         }
     }
 
-    pub(crate) async fn readiness(&self, interest: Interest) -> io::Result<ReadyEvent> {
+    pub(crate) async fn pollReadinessAsync(&self, interest: Interest) -> io::Result<ReadyEvent> {
         let readyEvent = self.scheduledIo.pollReadinessAsync(interest).await;
 
-        if readyEvent.is_shutdown {
+        if readyEvent.isShutdown {
             return Err(gone());
         }
 
@@ -173,13 +173,13 @@ impl Registration {
 
     pub(crate) async fn async_io<R>(&self, interest: Interest, mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
         loop {
-            let event = self.readiness(interest).await?;
+            let readyEvent = self.pollReadinessAsync(interest).await?;
 
-            let coop = crate::future::poll_fn(crate::runtime::coop::poll_proceed).await;
+            let coop = crate::future::poll_fn(coop::poll_proceed).await;
 
             match f() {
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.clear_readiness(event);
+                    self.clear_readiness(readyEvent);
                 }
                 x => {
                     coop.made_progress();

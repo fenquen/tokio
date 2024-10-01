@@ -517,7 +517,7 @@ impl Sender {
     /// consumed by an attempt to write that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn ready(&self, interest: Interest) -> io::Result<Ready> {
-        let event = self.io.registration().readiness(interest).await?;
+        let event = self.io.registration().pollReadinessAsync(interest).await?;
         Ok(event.ready)
     }
 
@@ -1013,7 +1013,7 @@ impl Receiver {
     /// consumed by an attempt to read that fails with `WouldBlock` or
     /// `Poll::Pending`.
     pub async fn ready(&self, interest: Interest) -> io::Result<Ready> {
-        let event = self.io.registration().readiness(interest).await?;
+        let event = self.io.registration().pollReadinessAsync(interest).await?;
         Ok(event.ready)
     }
 

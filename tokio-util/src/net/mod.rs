@@ -5,6 +5,7 @@ use std::future::Future;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::net::TcpListener;
 
 #[cfg(unix)]
 pub mod unix;
@@ -31,7 +32,7 @@ pub trait Listener {
     fn local_addr(&self) -> Result<Self::Addr>;
 }
 
-impl Listener for tokio::net::TcpListener {
+impl Listener for TcpListener {
     type Io = tokio::net::TcpStream;
     type Addr = std::net::SocketAddr;
 

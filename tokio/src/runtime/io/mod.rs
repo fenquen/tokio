@@ -9,4 +9,4 @@ mod registration_set;
 use registration_set::RegistrationSet;
 
 mod scheduled_io;
-use scheduled_io::ScheduledIo;
+use scheduled_io::ScheduledIO;

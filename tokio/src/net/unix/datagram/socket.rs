@@ -177,7 +177,7 @@ impl UnixDatagram {
     /// }
     /// ```
     pub async fn ready(&self, interest: Interest) -> io::Result<Ready> {
-        let event = self.io.registration().readiness(interest).await?;
+        let event = self.io.registration().pollReadinessAsync(interest).await?;
         Ok(event.ready)
     }
 

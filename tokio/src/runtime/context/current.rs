@@ -5,11 +5,12 @@ use crate::util::markers::SyncNotSend;
 
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
+use crate::runtime::scheduler::SchedulerHandleEnum;
 
 #[derive(Debug)]
 #[must_use]
 pub(crate) struct SetCurrentGuard {
-    prevSchedulerHandleEnumCell: Option<scheduler::SchedulerHandleEnum>,
+    prevSchedulerHandleEnumCell: Option<SchedulerHandleEnum>,
 
     // The depth for this guard
     depth: usize,
@@ -25,10 +26,7 @@ impl Drop for SetCurrentGuard {
 
             if depth != self.depth {
                 if !std::thread::panicking() {
-                    panic!(
-                        "`EnterGuard` values dropped out of order. Guards returned by \
-                         `tokio::runtime::Handle::enter()` must be dropped in the reverse order as they were acquired."
-                    );
+                    panic!("`EnterGuard` values dropped out of order. Guards returned by tokio::runtime::Handle::enter()` must be dropped in the reverse order as they were acquired.");
                 }
 
                 return;
@@ -41,7 +39,7 @@ impl Drop for SetCurrentGuard {
 }
 
 pub(super) struct SchedulerHandleEnumCell {
-    schedulerHandleEnum: RefCell<Option<scheduler::SchedulerHandleEnum>>,
+    schedulerHandleEnum: RefCell<Option<SchedulerHandleEnum>>,
 
     /// Tracks the number of nested calls to `try_set_current`.
     depth: Cell<usize>,
@@ -56,14 +54,11 @@ impl SchedulerHandleEnumCell {
     }
 }
 
-pub(crate) fn trySetCurrentSchedulerHandleEnum(schedulerHandleEnum: &scheduler::SchedulerHandleEnum) -> Option<SetCurrentGuard> {
+pub(crate) fn trySetCurrentSchedulerHandleEnum(schedulerHandleEnum: &SchedulerHandleEnum) -> Option<SetCurrentGuard> {
     CONTEXT.try_with(|ctx| ctx.set_current(schedulerHandleEnum)).ok()
 }
 
-pub(crate) fn withCurrentSchedulerHandleEnum<F, R>(f: F) -> Result<R, TryCurrentError>
-where
-    F: FnOnce(&scheduler::SchedulerHandleEnum) -> R,
-{
+pub(crate) fn withCurrentSchedulerHandleEnum<F: FnOnce(&SchedulerHandleEnum) -> R, R>(f: F) -> Result<R, TryCurrentError> {
     match CONTEXT.try_with(|ctx| ctx.schedulerHandleEnumCell.schedulerHandleEnum.borrow().as_ref().map(f)) {
         Ok(Some(ret)) => Ok(ret),
         Ok(None) => Err(TryCurrentError::new_no_context()),
@@ -72,7 +67,7 @@ where
 }
 
 impl Context {
-    pub(super) fn set_current(&self, schedulerHandleEnum: &scheduler::SchedulerHandleEnum) -> SetCurrentGuard {
+    pub(super) fn set_current(&self, schedulerHandleEnum: &SchedulerHandleEnum) -> SetCurrentGuard {
         let old_handle = self.schedulerHandleEnumCell.schedulerHandleEnum.borrow_mut().replace(schedulerHandleEnum.clone());
         let depth = self.schedulerHandleEnumCell.depth.get();
 

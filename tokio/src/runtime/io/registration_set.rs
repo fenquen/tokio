@@ -1,5 +1,5 @@
 use crate::loom::sync::atomic::AtomicUsize;
-use crate::runtime::io::ScheduledIo;
+use crate::runtime::io::ScheduledIO;
 use crate::util::linked_list::{self, LinkedList};
 
 use std::io;
@@ -12,18 +12,17 @@ pub(super) struct RegistrationSet {
 }
 
 pub(super) struct Synced {
-    // True when the I/O driver shutdown. At this point, no more registrations
-    // should be added to the set.
+    // True when the I/O driver shutdown. At this point, no more registrations should be added to the set.
     is_shutdown: bool,
 
     // List of all registrations tracked by the set
-    registrations: LinkedList<Arc<ScheduledIo>, ScheduledIo>,
+    registeredScheduledIOList: LinkedList<Arc<ScheduledIO>, ScheduledIO>,
 
     // Registrations that are pending drop. When a `Registration` is dropped, it
     // stores its `ScheduledIo` in this list. The I/O driver is responsible for
     // dropping it. This ensures the `ScheduledIo` is not freed while it can
     // still be included in an I/O event.
-    pending_release: Vec<Arc<ScheduledIo>>,
+    pendingReleaseScheduledIOs: Vec<Arc<ScheduledIO>>,
 }
 
 impl RegistrationSet {
@@ -34,8 +33,8 @@ impl RegistrationSet {
 
         let synced = Synced {
             is_shutdown: false,
-            registrations: LinkedList::new(),
-            pending_release: Vec::with_capacity(16),
+            registeredScheduledIOList: LinkedList::new(),
+            pendingReleaseScheduledIOs: Vec::with_capacity(16),
         };
 
         (set, synced)
@@ -50,40 +49,39 @@ impl RegistrationSet {
         self.num_pending_release.load(Acquire) != 0
     }
 
-    pub(super) fn register(&self, synced: &mut Synced) -> io::Result<Arc<ScheduledIo>> {
+    pub(super) fn register(&self, synced: &mut Synced) -> io::Result<Arc<ScheduledIO>> {
         if synced.is_shutdown {
             return Err(io::Error::new(io::ErrorKind::Other, crate::util::error::RUNTIME_SHUTTING_DOWN_ERROR));
         }
 
-        let ret = Arc::new(ScheduledIo::default());
+        let scheduledIO = Arc::new(ScheduledIO::default());
 
         // Push a ref into the list of all resources.
-        synced.registrations.push_front(ret.clone());
+        synced.registeredScheduledIOList.push_front(scheduledIO.clone());
 
-        Ok(ret)
+        Ok(scheduledIO)
     }
 
-    // Returns `true` if the caller should unblock the I/O driver to purge
-    // registrations pending release.
-    pub(super) fn deregister(&self, synced: &mut Synced, registration: &Arc<ScheduledIo>) -> bool {
-        // Kind of arbitrary, but buffering 16 `ScheduledIo`s doesn't seem like much
+    // returns `true` if the caller should unblock the I/O driver to purge registrations pending release
+    pub(super) fn deregister(&self, synced: &mut Synced, registration: &Arc<ScheduledIO>) -> bool {
+        // arbitrary, but buffering 16 `ScheduledIo`s doesn't seem like much
         const NOTIFY_AFTER: usize = 16;
 
-        synced.pending_release.push(registration.clone());
+        synced.pendingReleaseScheduledIOs.push(registration.clone());
 
-        let len = synced.pending_release.len();
+        let len = synced.pendingReleaseScheduledIOs.len();
         self.num_pending_release.store(len, Release);
 
         len == NOTIFY_AFTER
     }
 
-    pub(super) fn shutdown(&self, synced: &mut Synced) -> Vec<Arc<ScheduledIo>> {
+    pub(super) fn shutdown(&self, synced: &mut Synced) -> Vec<Arc<ScheduledIO>> {
         if synced.is_shutdown {
             return vec![];
         }
 
         synced.is_shutdown = true;
-        synced.pending_release.clear();
+        synced.pendingReleaseScheduledIOs.clear();
 
         // Building a vec of all outstanding I/O handles could be expensive, but
         // this is the shutdown operation. In theory, shutdowns should be
@@ -91,7 +89,7 @@ impl RegistrationSet {
         // aren't optimizing for shutdown.
         let mut ret = vec![];
 
-        while let Some(io) = synced.registrations.pop_back() {
+        while let Some(io) = synced.registeredScheduledIOList.pop_back() {
             ret.push(io);
         }
 
@@ -99,7 +97,7 @@ impl RegistrationSet {
     }
 
     pub(super) fn release(&self, synced: &mut Synced) {
-        let pending = std::mem::take(&mut synced.pending_release);
+        let pending = std::mem::take(&mut synced.pendingReleaseScheduledIOs);
 
         for io in pending {
             // safety: the registration is part of our list
@@ -109,31 +107,28 @@ impl RegistrationSet {
         self.num_pending_release.store(0, Release);
     }
 
-    // This function is marked as unsafe, because the caller must make sure that
-    // `io` is part of the registration set.
-    pub(super) unsafe fn remove(&self, synced: &mut Synced, io: &ScheduledIo) {
-        let _ = synced.registrations.remove(io.into());
+    // marked as unsafe, because the caller must make sure that `io` is part of the registration set.
+    pub(super) unsafe fn remove(&self, synced: &mut Synced, io: &ScheduledIO) {
+        let _ = synced.registeredScheduledIOList.remove(io.into());
     }
 }
 
 // Safety: `Arc` pins the inner data
-unsafe impl linked_list::Link for Arc<ScheduledIo> {
-    type Handle = Arc<ScheduledIo>;
-    type Target = ScheduledIo;
+unsafe impl linked_list::Link for Arc<ScheduledIO> {
+    type Handle = Arc<ScheduledIO>;
+    type Target = ScheduledIO;
 
-    fn as_raw(handle: &Self::Handle) -> NonNull<ScheduledIo> {
+    fn as_raw(handle: &Self::Handle) -> NonNull<ScheduledIO> {
         // safety: Arc::as_ptr never returns null
         unsafe { NonNull::new_unchecked(Arc::as_ptr(handle) as *mut _) }
     }
 
-    unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Arc<ScheduledIo> {
+    unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Arc<ScheduledIO> {
         // safety: the linked list currently owns a ref count
         unsafe { Arc::from_raw(ptr.as_ptr() as *const _) }
     }
 
-    unsafe fn pointers(
-        target: NonNull<Self::Target>,
-    ) -> NonNull<linked_list::Pointers<ScheduledIo>> {
+    unsafe fn pointers(target: NonNull<Self::Target>) -> NonNull<linked_list::Pointers<ScheduledIO>> {
         NonNull::new_unchecked(target.as_ref().linked_list_pointers.get())
     }
 }

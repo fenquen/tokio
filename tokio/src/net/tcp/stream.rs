@@ -14,62 +14,61 @@ use std::net::{Shutdown, SocketAddr};
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
-cfg_io_util! {
-    use bytes::BufMut;
+#[cfg(feature = "io-util")]
+use bytes::BufMut;
+
+#[cfg(feature = "net")]
+/// A TCP stream between a local and a remote socket.
+///
+/// A TCP stream can either be created by connecting to an endpoint, via the
+/// [`connect`] method, or by [accepting] a connection from a [listener]. A
+/// TCP stream can also be created via the [`TcpSocket`] type.
+///
+/// Reading and writing to a `TcpStream` is usually done using the
+/// convenience methods found on the [`AsyncReadExt`] and [`AsyncWriteExt`]
+/// traits.
+///
+/// [`connect`]: method@TcpStream::connect
+/// [accepting]: method@crate::net::TcpListener::accept
+/// [listener]: struct@crate::net::TcpListener
+/// [`TcpSocket`]: struct@crate::net::TcpSocket
+/// [`AsyncReadExt`]: trait@crate::io::AsyncReadExt
+/// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
+///
+/// # Examples
+///
+/// ```no_run
+/// use tokio::net::TcpStream;
+/// use tokio::io::AsyncWriteExt;
+/// use std::error::Error;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn Error>> {
+///     // Connect to a peer
+///     let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
+///
+///     // Write some data.
+///     stream.write_all(b"hello world!").await?;
+///
+///     Ok(())
+/// }
+/// ```
+///
+/// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
+///
+/// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
+/// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
+///
+/// To shut down the stream in the write direction, you can call the
+/// [`shutdown()`] method. This will cause the other peer to receive a read of
+/// length 0, indicating that no more data will be sent. This only closes
+/// the stream in one direction.
+///
+/// [`shutdown()`]: fn@crate::io::AsyncWriteExt::shutdown
+pub struct TcpStream {
+    pollEvented: PollEvented<mio::net::TcpStream>,
 }
 
-cfg_net! {
-    /// A TCP stream between a local and a remote socket.
-    ///
-    /// A TCP stream can either be created by connecting to an endpoint, via the
-    /// [`connect`] method, or by [accepting] a connection from a [listener]. A
-    /// TCP stream can also be created via the [`TcpSocket`] type.
-    ///
-    /// Reading and writing to a `TcpStream` is usually done using the
-    /// convenience methods found on the [`AsyncReadExt`] and [`AsyncWriteExt`]
-    /// traits.
-    ///
-    /// [`connect`]: method@TcpStream::connect
-    /// [accepting]: method@crate::net::TcpListener::accept
-    /// [listener]: struct@crate::net::TcpListener
-    /// [`TcpSocket`]: struct@crate::net::TcpSocket
-    /// [`AsyncReadExt`]: trait@crate::io::AsyncReadExt
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    /// use tokio::io::AsyncWriteExt;
-    /// use std::error::Error;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> Result<(), Box<dyn Error>> {
-    ///     // Connect to a peer
-    ///     let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    ///     // Write some data.
-    ///     stream.write_all(b"hello world!").await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
-    ///
-    /// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
-    ///
-    /// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
-    ///
-    /// To shut down the stream in the write direction, you can call the
-    /// [`shutdown()`] method. This will cause the other peer to receive a read of
-    /// length 0, indicating that no more data will be sent. This only closes
-    /// the stream in one direction.
-    ///
-    /// [`shutdown()`]: fn@crate::io::AsyncWriteExt::shutdown
-    pub struct TcpStream {
-        io: PollEvented<mio::net::TcpStream>,
-    }
-}
 
 impl TcpStream {
     cfg_not_wasi! {
@@ -138,7 +137,7 @@ impl TcpStream {
         }
 
         pub(crate) async fn connect_mio(sys: mio::net::TcpStream) -> io::Result<TcpStream> {
-            let stream = TcpStream::new(sys)?;
+            let stream = TcpStream::fromMio(sys)?;
 
             // Once we've connected, wait for the stream to be writable as
             // that's when the actual connection has been initiated. Once we're
@@ -146,9 +145,9 @@ impl TcpStream {
             // actually hit an error or not.
             //
             // If all that succeeded then we ship everything on up.
-            poll_fn(|cx| stream.io.registration().poll_write_ready(cx)).await?;
+            poll_fn(|cx| stream.pollEvented.registration().poll_write_ready(cx)).await?;
 
-            if let Some(e) = stream.io.take_error()? {
+            if let Some(e) = stream.pollEvented.take_error()? {
                 return Err(e);
             }
 
@@ -156,23 +155,21 @@ impl TcpStream {
         }
     }
 
-    pub(crate) fn new(connected: mio::net::TcpStream) -> io::Result<TcpStream> {
-        let io = PollEvented::new(connected)?;
-        Ok(TcpStream { io })
+    pub(crate) fn fromMio(mioTcpStream: mio::net::TcpStream) -> io::Result<TcpStream> {
+        Ok(TcpStream { pollEvented:  PollEvented::new(mioTcpStream)? })
     }
 
     #[track_caller]
     pub fn from_std(stream: std::net::TcpStream) -> io::Result<TcpStream> {
         let io = mio::net::TcpStream::from_std(stream);
-        let io = PollEvented::new(io)?;
-        Ok(TcpStream { io })
+        Ok(TcpStream { pollEvented: PollEvented::new(io)? })
     }
 
     pub fn into_std(self) -> io::Result<std::net::TcpStream> {
         #[cfg(unix)]
         {
             use std::os::unix::io::{FromRawFd, IntoRawFd};
-            self.io
+            self.pollEvented
                 .into_inner()
                 .map(IntoRawFd::into_raw_fd)
                 .map(|raw_fd| unsafe { std::net::TcpStream::from_raw_fd(raw_fd) })
@@ -180,16 +177,16 @@ impl TcpStream {
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.io.local_addr()
+        self.pollEvented.local_addr()
     }
 
     /// Returns the value of the `SO_ERROR` option.
     pub fn take_error(&self) -> io::Result<Option<io::Error>> {
-        self.io.take_error()
+        self.pollEvented.take_error()
     }
 
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
-        self.io.peer_addr()
+        self.pollEvented.peer_addr()
     }
 
     /// Attempts to receive data on the socket, without removing that data from
@@ -234,26 +231,22 @@ impl TcpStream {
     ///     Ok(())
     /// }
     /// ```
-    pub fn poll_peek(
-        &self,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<usize>> {
+    pub fn poll_peek(&self, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<usize>> {
         loop {
-            let ev = ready!(self.io.registration().poll_read_ready(cx))?;
+            let ev = ready!(self.pollEvented.registration().poll_read_ready(cx))?;
 
             let b = unsafe {
                 &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
             };
 
-            match self.io.peek(b) {
+            match self.pollEvented.peek(b) {
                 Ok(ret) => {
                     unsafe { buf.assume_init(ret) };
                     buf.advance(ret);
                     return Poll::Ready(Ok(ret));
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.io.registration().clear_readiness(ev);
+                    self.pollEvented.registration().clear_readiness(ev);
                 }
                 Err(e) => return Poll::Ready(Err(e)),
             }
@@ -334,7 +327,7 @@ impl TcpStream {
     /// }
     /// ```
     pub async fn ready(&self, interest: Interest) -> io::Result<Ready> {
-        let event = self.io.registration().readiness(interest).await?;
+        let event = self.pollEvented.registration().pollReadinessAsync(interest).await?;
         Ok(event.ready)
     }
 
@@ -423,7 +416,7 @@ impl TcpStream {
     ///
     /// [`readable`]: method@Self::readable
     pub fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.registration().poll_read_ready(cx).map_ok(|_| ())
+        self.pollEvented.registration().poll_read_ready(cx).map_ok(|_| ())
     }
 
     /// Tries to read data from the stream into the provided buffer, returning how
@@ -492,9 +485,7 @@ impl TcpStream {
     pub fn try_read(&self, buf: &mut [u8]) -> io::Result<usize> {
         use std::io::Read;
 
-        self.io
-            .registration()
-            .try_io(Interest::READABLE, || (&*self.io).read(buf))
+        self.pollEvented.registration().try_io(Interest::READABLE, || (&*self.pollEvented).read(buf))
     }
 
     /// Tries to read data from the stream into the provided buffers, returning
@@ -570,9 +561,9 @@ impl TcpStream {
     pub fn try_read_vectored(&self, bufs: &mut [io::IoSliceMut<'_>]) -> io::Result<usize> {
         use std::io::Read;
 
-        self.io
+        self.pollEvented
             .registration()
-            .try_io(Interest::READABLE, || (&*self.io).read_vectored(bufs))
+            .try_io(Interest::READABLE, || (&*self.pollEvented).read_vectored(bufs))
     }
 
     cfg_io_util! {
@@ -634,7 +625,7 @@ impl TcpStream {
         /// }
         /// ```
         pub fn try_read_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize> {
-            self.io.registration().try_io(Interest::READABLE, || {
+            self.pollEvented.registration().try_io(Interest::READABLE, || {
                 use std::io::Read;
 
                 let dst = buf.chunk_mut();
@@ -643,7 +634,7 @@ impl TcpStream {
 
                 // Safety: We trust `TcpStream::read` to have filled up `n` bytes in the
                 // buffer.
-                let n = (&*self.io).read(dst)?;
+                let n = (&*self.pollEvented).read(dst)?;
 
                 unsafe {
                     buf.advance_mut(n);
@@ -735,7 +726,7 @@ impl TcpStream {
     ///
     /// [`writable`]: method@Self::writable
     pub fn poll_write_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.registration().poll_write_ready(cx).map_ok(|_| ())
+        self.pollEvented.registration().poll_write_ready(cx).map_ok(|_| ())
     }
 
     /// Try to write a buffer to the stream, returning how many bytes were
@@ -789,9 +780,7 @@ impl TcpStream {
     pub fn try_write(&self, buf: &[u8]) -> io::Result<usize> {
         use std::io::Write;
 
-        self.io
-            .registration()
-            .try_io(Interest::WRITABLE, || (&*self.io).write(buf))
+        self.pollEvented.registration().try_io(Interest::WRITABLE, || (&*self.pollEvented).write(buf))
     }
 
     /// Tries to write several buffers to the stream, returning how many bytes
@@ -851,9 +840,7 @@ impl TcpStream {
     pub fn try_write_vectored(&self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
         use std::io::Write;
 
-        self.io
-            .registration()
-            .try_io(Interest::WRITABLE, || (&*self.io).write_vectored(bufs))
+        self.pollEvented.registration().try_io(Interest::WRITABLE, || (&*self.pollEvented).write_vectored(bufs))
     }
 
     /// Tries to read or write from the socket using a user-provided IO operation.
@@ -888,10 +875,8 @@ impl TcpStream {
     /// [`readable()`]: TcpStream::readable()
     /// [`writable()`]: TcpStream::writable()
     /// [`ready()`]: TcpStream::ready()
-    pub fn try_io<R>(&self,
-                     interest: Interest,
-                     f: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
-        self.io.registration().try_io(interest, || self.io.try_io(f))
+    pub fn try_io<R>(&self, interest: Interest, f: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
+        self.pollEvented.registration().try_io(interest, || self.pollEvented.try_io(f))
     }
 
     /// Reads or writes from the socket using a user-provided IO operation.
@@ -919,10 +904,8 @@ impl TcpStream {
     /// The closure should perform only one type of IO operation, so it should not
     /// require more than one ready state. This method may panic or sleep forever
     /// if it is called with a combined interest.
-    pub async fn async_io<R>(&self,
-                             interest: Interest,
-                             mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
-        self.io.registration().async_io(interest, || self.io.try_io(&mut f)).await
+    pub async fn async_io<R>(&self, interest: Interest, mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
+        self.pollEvented.registration().async_io(interest, || self.pollEvented.try_io(&mut f)).await
     }
 
     /// Receives data on the socket from the remote address to which it is
@@ -963,7 +946,7 @@ impl TcpStream {
     /// [`read`]: fn@crate::io::AsyncReadExt::read
     /// [`AsyncReadExt`]: trait@crate::io::AsyncReadExt
     pub async fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.io.registration().async_io(Interest::READABLE, || self.io.peek(buf)).await
+        self.pollEvented.registration().async_io(Interest::READABLE, || self.pollEvented.peek(buf)).await
     }
 
     /// Shuts down the read, write, or both halves of this connection.
@@ -972,16 +955,16 @@ impl TcpStream {
     /// portions to return immediately with an appropriate value (see the
     /// documentation of `Shutdown`).
     pub(super) fn shutdown_std(&self, how: Shutdown) -> io::Result<()> {
-        self.io.shutdown(how)
+        self.pollEvented.shutdown(how)
     }
 
     /// Gets the value of the `TCP_NODELAY` option on this socket.
     pub fn nodelay(&self) -> io::Result<bool> {
-        self.io.nodelay()
+        self.pollEvented.nodelay()
     }
 
     pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
-        self.io.set_nodelay(nodelay)
+        self.pollEvented.set_nodelay(nodelay)
     }
 
     cfg_not_wasi! {
@@ -1053,7 +1036,7 @@ impl TcpStream {
     /// # }
     /// ```
     pub fn ttl(&self) -> io::Result<u32> {
-        self.io.ttl()
+        self.pollEvented.ttl()
     }
 
     /// Sets the value for the `IP_TTL` option on this socket.
@@ -1074,7 +1057,7 @@ impl TcpStream {
     /// # }
     /// ```
     pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
-        self.io.set_ttl(ttl)
+        self.pollEvented.set_ttl(ttl)
     }
 
     // These lifetime markers also appear in the generated documentation, and make
@@ -1118,7 +1101,7 @@ impl TcpStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         // Safety: `TcpStream::read` correctly handles reads into uninitialized memory
-        unsafe { self.io.poll_read(cx, buf) }
+        unsafe { self.pollEvented.poll_read(cx, buf) }
     }
 
     pub(super) fn poll_write_priv(
@@ -1126,7 +1109,7 @@ impl TcpStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.io.poll_write(cx, buf)
+        self.pollEvented.poll_write(cx, buf)
     }
 
     pub(super) fn poll_write_vectored_priv(
@@ -1134,7 +1117,7 @@ impl TcpStream {
         cx: &mut Context<'_>,
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        self.io.poll_write_vectored(cx, bufs)
+        self.pollEvented.poll_write_vectored(cx, bufs)
     }
 }
 
@@ -1197,7 +1180,7 @@ impl AsyncWrite for TcpStream {
 
 impl fmt::Debug for TcpStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.io.fmt(f)
+        self.pollEvented.fmt(f)
     }
 }
 
@@ -1208,7 +1191,7 @@ mod sys {
 
     impl AsRawFd for TcpStream {
         fn as_raw_fd(&self) -> RawFd {
-            self.io.as_raw_fd()
+            self.pollEvented.as_raw_fd()
         }
     }
 
