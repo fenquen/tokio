@@ -27,14 +27,9 @@ impl CopyBuffer {
         }
     }
 
-    fn poll_fill_buf<R>(
-        &mut self,
-        cx: &mut Context<'_>,
-        reader: Pin<&mut R>,
-    ) -> Poll<io::Result<()>>
-    where
-        R: AsyncRead + ?Sized,
-    {
+    fn poll_fill_buf<R: AsyncRead + ?Sized>(&mut self,
+                                            cx: &mut Context<'_>,
+                                            reader: Pin<&mut R>) -> Poll<io::Result<()>> {
         let me = &mut *self;
         let mut buf = ReadBuf::new(&mut me.buf);
         buf.set_filled(me.cap);
@@ -279,17 +274,12 @@ cfg_io_util! {
     }
 }
 
-impl<R, W> Future for Copy<'_, R, W>
-where
-    R: AsyncRead + Unpin + ?Sized,
-    W: AsyncWrite + Unpin + ?Sized,
-{
+impl<R: AsyncRead + Unpin + ?Sized, W: AsyncWrite + Unpin + ?Sized> Future for Copy<'_, R, W> {
     type Output = io::Result<u64>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
         let me = &mut *self;
 
-        me.buf
-            .poll_copy(cx, Pin::new(&mut *me.reader), Pin::new(&mut *me.writer))
+        me.buf.poll_copy(cx, Pin::new(&mut *me.reader), Pin::new(&mut *me.writer))
     }
 }

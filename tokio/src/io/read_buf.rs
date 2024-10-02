@@ -243,12 +243,7 @@ impl<'a> ReadBuf<'a> {
     #[inline]
     #[track_caller]
     pub fn put_slice(&mut self, buf: &[u8]) {
-        assert!(
-            self.remaining() >= buf.len(),
-            "buf.len() must fit in remaining(); buf.len() = {}, remaining() = {}",
-            buf.len(),
-            self.remaining()
-        );
+        assert!(self.remaining() >= buf.len(), "buf.len() must fit in remaining(); buf.len() = {}, remaining() = {}", buf.len(), self.remaining());
 
         let amt = buf.len();
         // Cannot overflow, asserted above
@@ -256,10 +251,7 @@ impl<'a> ReadBuf<'a> {
 
         // Safety: the length is asserted above
         unsafe {
-            self.buf[self.filled..end]
-                .as_mut_ptr()
-                .cast::<u8>()
-                .copy_from_nonoverlapping(buf.as_ptr(), amt);
+            self.buf[self.filled..end].as_mut_ptr().cast::<u8>().copy_from_nonoverlapping(buf.as_ptr(), amt);
         }
 
         if self.initialized < end {

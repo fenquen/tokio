@@ -66,7 +66,7 @@ use bytes::BufMut;
 ///
 /// [`shutdown()`]: fn@crate::io::AsyncWriteExt::shutdown
 pub struct TcpStream {
-    pollEvented: PollEvented<mio::net::TcpStream>,
+    pub pollEvented: PollEvented<mio::net::TcpStream>,
 }
 
 
@@ -156,7 +156,7 @@ impl TcpStream {
     }
 
     pub(crate) fn fromMio(mioTcpStream: mio::net::TcpStream) -> io::Result<TcpStream> {
-        Ok(TcpStream { pollEvented:  PollEvented::new(mioTcpStream)? })
+        Ok(TcpStream { pollEvented: PollEvented::new(mioTcpStream)? })
     }
 
     #[track_caller]
@@ -233,7 +233,7 @@ impl TcpStream {
     /// ```
     pub fn poll_peek(&self, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<usize>> {
         loop {
-            let ev = ready!(self.pollEvented.registration().poll_read_ready(cx))?;
+            let ev = ready!(self.pollEvented.registration().pollReadReady(cx))?;
 
             let b = unsafe {
                 &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8])
@@ -416,7 +416,7 @@ impl TcpStream {
     ///
     /// [`readable`]: method@Self::readable
     pub fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.pollEvented.registration().poll_read_ready(cx).map_ok(|_| ())
+        self.pollEvented.registration().pollReadReady(cx).map_ok(|_| ())
     }
 
     /// Tries to read data from the stream into the provided buffer, returning how
@@ -560,10 +560,7 @@ impl TcpStream {
     /// ```
     pub fn try_read_vectored(&self, bufs: &mut [io::IoSliceMut<'_>]) -> io::Result<usize> {
         use std::io::Read;
-
-        self.pollEvented
-            .registration()
-            .try_io(Interest::READABLE, || (&*self.pollEvented).read_vectored(bufs))
+        self.pollEvented.registration.try_io(Interest::READABLE, || (&*self.pollEvented).read_vectored(bufs))
     }
 
     cfg_io_util! {
@@ -905,7 +902,7 @@ impl TcpStream {
     /// require more than one ready state. This method may panic or sleep forever
     /// if it is called with a combined interest.
     pub async fn async_io<R>(&self, interest: Interest, mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
-        self.pollEvented.registration().async_io(interest, || self.pollEvented.try_io(&mut f)).await
+        self.pollEvented.registration().performAsyncIO(interest, || self.pollEvented.try_io(&mut f)).await
     }
 
     /// Receives data on the socket from the remote address to which it is
@@ -946,7 +943,7 @@ impl TcpStream {
     /// [`read`]: fn@crate::io::AsyncReadExt::read
     /// [`AsyncReadExt`]: trait@crate::io::AsyncReadExt
     pub async fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
-        self.pollEvented.registration().async_io(Interest::READABLE, || self.pollEvented.peek(buf)).await
+        self.pollEvented.registration().performAsyncIO(Interest::READABLE, || self.pollEvented.peek(buf)).await
     }
 
     /// Shuts down the read, write, or both halves of this connection.
@@ -968,94 +965,21 @@ impl TcpStream {
     }
 
     cfg_not_wasi! {
-        /// Reads the linger duration for this socket by getting the `SO_LINGER`
-        /// option.
-        ///
-        /// For more information about this option, see [`set_linger`].
-        ///
-        /// [`set_linger`]: TcpStream::set_linger
-        ///
-        /// # Examples
-        ///
-        /// ```no_run
-        /// use tokio::net::TcpStream;
-        ///
-        /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-        /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-        ///
-        /// println!("{:?}", stream.linger()?);
-        /// # Ok(())
-        /// # }
-        /// ```
+        /// Reads the linger duration for this socket by getting the `SO_LINGER` option.
         pub fn linger(&self) -> io::Result<Option<Duration>> {
             socket2::SockRef::from(self).linger()
         }
 
-        /// Sets the linger duration of this socket by setting the `SO_LINGER` option.
-        ///
-        /// This option controls the action taken when a stream has unsent messages and the stream is
-        /// closed. If `SO_LINGER` is set, the system shall block the process until it can transmit the
-        /// data or until the time expires.
-        ///
-        /// If `SO_LINGER` is not specified, and the stream is closed, the system handles the call in a
-        /// way that allows the process to continue as quickly as possible.
-        ///
-        /// # Examples
-        ///
-        /// ```no_run
-        /// use tokio::net::TcpStream;
-        ///
-        /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-        /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-        ///
-        /// stream.set_linger(None)?;
-        /// # Ok(())
-        /// # }
-        /// ```
         pub fn set_linger(&self, dur: Option<Duration>) -> io::Result<()> {
             socket2::SockRef::from(self).set_linger(dur)
         }
     }
 
     /// Gets the value of the `IP_TTL` option for this socket.
-    ///
-    /// For more information about this option, see [`set_ttl`].
-    ///
-    /// [`set_ttl`]: TcpStream::set_ttl
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    ///
-    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    /// println!("{:?}", stream.ttl()?);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn ttl(&self) -> io::Result<u32> {
         self.pollEvented.ttl()
     }
 
-    /// Sets the value for the `IP_TTL` option on this socket.
-    ///
-    /// This value sets the time-to-live field that is used in every packet sent
-    /// from this socket.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::net::TcpStream;
-    ///
-    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
-    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
-    ///
-    /// stream.set_ttl(123)?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
         self.pollEvented.set_ttl(ttl)
     }
@@ -1094,29 +1018,16 @@ impl TcpStream {
     // To read or write without mutable access to the `UnixStream`, combine the
     // `poll_read_ready` or `poll_write_ready` methods with the `try_read` or
     // `try_write` methods.
-
-    pub(crate) fn poll_read_priv(
-        &self,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    pub(crate) fn pollRead(&self, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         // Safety: `TcpStream::read` correctly handles reads into uninitialized memory
-        unsafe { self.pollEvented.poll_read(cx, buf) }
+        unsafe { self.pollEvented.pollRead(cx, buf) }
     }
 
-    pub(super) fn poll_write_priv(
-        &self,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    pub(super) fn poll_write_priv(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.pollEvented.poll_write(cx, buf)
     }
 
-    pub(super) fn poll_write_vectored_priv(
-        &self,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
+    pub(super) fn poll_write_vectored_priv(&self, cx: &mut Context<'_>, bufs: &[io::IoSlice<'_>]) -> Poll<io::Result<usize>> {
         self.pollEvented.poll_write_vectored(cx, bufs)
     }
 }
@@ -1124,24 +1035,14 @@ impl TcpStream {
 impl TryFrom<std::net::TcpStream> for TcpStream {
     type Error = io::Error;
 
-    /// Consumes stream, returning the tokio I/O object.
-    ///
-    /// This is equivalent to
-    /// [`TcpStream::from_std(stream)`](TcpStream::from_std).
     fn try_from(stream: std::net::TcpStream) -> Result<Self, Self::Error> {
         Self::from_std(stream)
     }
 }
 
-// ===== impl Read / Write =====
-
 impl AsyncRead for TcpStream {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        self.poll_read_priv(cx, buf)
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        self.pollRead(cx, buf)
     }
 }
 

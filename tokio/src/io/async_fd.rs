@@ -373,7 +373,7 @@ impl<T: AsRawFd> AsyncFd<T> {
         &'a self,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<AsyncFdReadyGuard<'a, T>>> {
-        let event = ready!(self.registration.poll_read_ready(cx))?;
+        let event = ready!(self.registration.pollReadReady(cx))?;
 
         Poll::Ready(Ok(AsyncFdReadyGuard {
             async_fd: self,
@@ -410,7 +410,7 @@ impl<T: AsRawFd> AsyncFd<T> {
         &'a mut self,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<AsyncFdReadyMutGuard<'a, T>>> {
-        let event = ready!(self.registration.poll_read_ready(cx))?;
+        let event = ready!(self.registration.pollReadReady(cx))?;
 
         Poll::Ready(Ok(AsyncFdReadyMutGuard {
             async_fd: self,
@@ -822,7 +822,7 @@ impl<T: AsRawFd> AsyncFd<T> {
         mut f: impl FnMut(&T) -> io::Result<R>,
     ) -> io::Result<R> {
         self.registration
-            .async_io(interest, || f(self.get_ref()))
+            .performAsyncIO(interest, || f(self.get_ref()))
             .await
     }
 
@@ -838,7 +838,7 @@ impl<T: AsRawFd> AsyncFd<T> {
         mut f: impl FnMut(&mut T) -> io::Result<R>,
     ) -> io::Result<R> {
         self.registration
-            .async_io(interest, || f(self.inner.as_mut().unwrap()))
+            .performAsyncIO(interest, || f(self.inner.as_mut().unwrap()))
             .await
     }
 }

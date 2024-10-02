@@ -165,7 +165,7 @@ impl<E: AioSource> Aio<E> {
     /// completes. Note that on multiple calls to `poll_ready`, only the `Waker` from the
     /// `Context` passed to the most recent call is scheduled to receive a wakeup.
     pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<AioEvent>> {
-        let ev = ready!(self.registration.poll_read_ready(cx))?;
+        let ev = ready!(self.registration.pollReadReady(cx))?;
         Poll::Ready(Ok(AioEvent(ev)))
     }
 }

@@ -145,7 +145,7 @@ impl UnixListener {
         let (mio, addr) = self
             .io
             .registration()
-            .async_io(Interest::READABLE, || self.io.accept())
+            .performAsyncIO(Interest::READABLE, || self.io.accept())
             .await?;
 
         let addr = SocketAddr(addr);

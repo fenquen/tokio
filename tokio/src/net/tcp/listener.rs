@@ -41,7 +41,7 @@ impl TcpListener {
     }
 
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        let (mioTcpStream, socketAddr) = self.pollEvented.registration.async_io(Interest::READABLE, || self.pollEvented.accept()).await?;
+        let (mioTcpStream, socketAddr) = self.pollEvented.registration.performAsyncIO(Interest::READABLE, || self.pollEvented.accept()).await?;
         let tcpStream = TcpStream::fromMio(mioTcpStream)?;
         Ok((tcpStream, socketAddr))
     }
@@ -54,7 +54,7 @@ impl TcpListener {
     /// recent call is scheduled to receive a wakeup.
     pub fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
         loop {
-            let ev = ready!(self.pollEvented.registration().poll_read_ready(cx))?;
+            let ev = ready!(self.pollEvented.registration().pollReadReady(cx))?;
 
             match self.pollEvented.accept() {
                 Ok((io, addr)) => {

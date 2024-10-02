@@ -1,6 +1,6 @@
 use super::{Context, CONTEXT};
 
-use crate::runtime::{scheduler, TryCurrentError};
+use crate::runtime::{TryCurrentError};
 use crate::util::markers::SyncNotSend;
 
 use std::cell::{Cell, RefCell};

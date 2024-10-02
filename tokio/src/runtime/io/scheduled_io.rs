@@ -310,37 +310,32 @@ impl ScheduledIO {
     /// Polls for readiness events in a given direction.
     ///
     /// These are to support `AsyncRead` and `AsyncWrite` polling methods,
-    /// which cannot use the `async fn` version. This uses reserved reader
-    /// and writer slots.
-    pub(super) fn poll_readiness(&self, cx: &mut Context<'_>, direction: Direction) -> Poll<ReadyEvent> {
-        let curr = self.readyValue.load(Acquire);
+    /// which cannot use the `async fn` version. This uses reserved reader and writer slots.
+    pub(super) fn pollReady(&self, cx: &mut Context<'_>, direction: Direction) -> Poll<ReadyEvent> {
+        let currentReadyValue = self.readyValue.load(Acquire);
 
-        let ready = direction.mask() & Ready::from_usize(READINESS.unpack(curr));
-        let is_shutdown = SHUTDOWN.unpack(curr) != 0;
+        let ready = direction.mask() & Ready::from_usize(READINESS.unpack(currentReadyValue));
+        let is_shutdown = SHUTDOWN.unpack(currentReadyValue) != 0;
 
+        // 当未满足要求的时候set相应的waker
         if ready.is_empty() && !is_shutdown {
-            // Update the task info
             let mut waiters = self.waiters.lock();
             let slot = match direction {
                 Direction::Read => &mut waiters.readWaker,
                 Direction::Write => &mut waiters.writeWaker,
             };
 
-            // Avoid cloning the waker if one is already stored that matches the
-            // current task.
+            // avoid cloning the waker if one is already stored that matches the current task.
             match slot {
                 Some(existing) => {
                     if !existing.will_wake(cx.waker()) {
                         existing.clone_from(cx.waker());
                     }
                 }
-                None => {
-                    *slot = Some(cx.waker().clone());
-                }
+                None => *slot = Some(cx.waker().clone()),
             }
 
-            // Try again, in case the readiness was changed while we were
-            // taking the waiters lock
+            // try again, in case the readiness was changed while we were taking the waiters lock
             let curr = self.readyValue.load(Acquire);
             let ready = direction.mask() & Ready::from_usize(READINESS.unpack(curr));
             let is_shutdown = SHUTDOWN.unpack(curr) != 0;
@@ -361,7 +356,7 @@ impl ScheduledIO {
             }
         } else {
             Poll::Ready(ReadyEvent {
-                tick: TICK.unpack(curr) as u8,
+                tick: TICK.unpack(currentReadyValue) as u8,
                 ready,
                 isShutdown: is_shutdown,
             })
@@ -438,7 +433,7 @@ impl Future for ReadyFuture<'_> {
                     let interest = unsafe { (*waiter.get()).interest };
                     let ready = ready.intersection(interest);
                     if !ready.is_empty() || is_shutdown {
-                        // Currently ready!
+                        // ready
                         let tick = TICK.unpack(curr) as u8;
                         *state = ReadyFutureState::Done;
                         return Poll::Ready(ReadyEvent {
@@ -448,7 +443,7 @@ impl Future for ReadyFuture<'_> {
                         });
                     }
 
-                    // Wasn't ready, take the lock (and check again while locked).
+                    // not ready, take the lock (and check again while locked).
                     let mut waiters = scheduled_io.waiters.lock();
 
                     let curr = scheduled_io.readyValue.load(SeqCst);

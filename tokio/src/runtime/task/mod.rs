@@ -278,8 +278,7 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
 
     /// Polling the task resulted in a panic. Should the runtime shutdown?
     /// By default, do nothing. This maintains the 1.0 behavior.
-    fn unhandled_panic(&self) {
-    }
+    fn unhandled_panic(&self) {}
 }
 
 

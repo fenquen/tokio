@@ -1094,7 +1094,7 @@ impl Receiver {
     ///
     /// This function may encounter any standard I/O error except `WouldBlock`.
     pub fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.registration().poll_read_ready(cx).map_ok(|_| ())
+        self.io.registration().pollReadReady(cx).map_ok(|_| ())
     }
 
     /// Tries to read data from the pipe into the provided buffer, returning how
@@ -1349,7 +1349,7 @@ impl AsyncRead for Receiver {
     ) -> Poll<io::Result<()>> {
         // Safety: `mio_pipe::Receiver` uses a `std::fs::File` underneath,
         // which correctly handles reads into uninitialized memory.
-        unsafe { self.io.poll_read(cx, buf) }
+        unsafe { self.io.pollRead(cx, buf) }
     }
 }
 

@@ -17,11 +17,7 @@ pub(super) struct Harness<T: Future, S: 'static> {
     cell: NonNull<Cell<T, S>>,
 }
 
-impl<T, S> Harness<T, S>
-where
-    T: Future,
-    S: 'static,
-{
+impl<T: Future, S: 'static> Harness<T, S> {
     pub(super) unsafe fn from_raw(headerPtr: NonNull<Header>) -> Harness<T, S> {
         Harness {
             cell: headerPtr.cast::<Cell<T, S>>(),
@@ -358,8 +354,7 @@ fn can_read_output(header: &Header, trailer: &Trailer, waker: &Waker) -> bool {
     debug_assert!(snapshot.is_join_interested());
 
     if !snapshot.is_complete() {
-        // If the task is not complete, try storing the provided waker in the
-        // task's waker field.
+        // If the task is not complete, try storing the provided waker in the task's waker field.
 
         let res = if snapshot.is_join_waker_set() {
             // If JOIN_WAKER is set, then JoinHandle has previously stored a
@@ -389,6 +384,7 @@ fn can_read_output(header: &Header, trailer: &Trailer, waker: &Waker) -> bool {
             }
         }
     }
+
     true
 }
 
@@ -487,8 +483,7 @@ fn poll_future<T: Future, S: Schedule>(core: &Core<T, S>, context: Context<'_>) 
 }
 
 #[cold]
-fn panic_to_error<S: Schedule>(scheduler: &S, task_id: Id,
-                               panic: Box<dyn Any + Send + 'static>) -> JoinError {
+fn panic_to_error<S: Schedule>(scheduler: &S, task_id: Id, panic: Box<dyn Any + Send + 'static>) -> JoinError {
     scheduler.unhandled_panic();
     JoinError::panic(task_id, panic)
 }

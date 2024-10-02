@@ -252,8 +252,7 @@ impl State {
 
     /// Sets the cancelled bit and transitions the state to `NOTIFIED` if idle.
     ///
-    /// Returns `true` if the task needs to be submitted to the pool for
-    /// execution.
+    /// Returns `true` if the task needs to be submitted to the pool for execution
     pub(super) fn transition_to_notified_and_cancel(&self) -> bool {
         self.fetchUpdateAction(|mut snapshot| {
             // Aborts to completed or cancelled tasks are no-ops.

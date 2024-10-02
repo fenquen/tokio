@@ -373,7 +373,7 @@ impl AsyncRead for ReadHalf<'_> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        self.0.poll_read_priv(cx, buf)
+        self.0.pollRead(cx, buf)
     }
 }
 

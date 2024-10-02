@@ -646,7 +646,7 @@ impl Drop for TimerEntry {
 // Otherwise, we use a random number generator to obtain the shard id.
 cfg_rt! {
     fn generate_shard_id(shard_size: u32) -> u32 {
-        let id = context::with_scheduler(|ctx| match ctx {
+        let id = context::withThreadLocalContextEnum(|ctx| match ctx {
             Some(scheduler::ThreadLocalContextEnum::CurrentThread(_ctx)) => 0,
             #[cfg(feature = "rt-multi-thread")]
             Some(scheduler::ThreadLocalContextEnum::MultiThread(ctx)) => ctx.get_worker_index() as u32,

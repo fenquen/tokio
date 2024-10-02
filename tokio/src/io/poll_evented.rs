@@ -1,6 +1,5 @@
 use crate::io::interest::Interest;
 use crate::runtime::io::Registration;
-use crate::runtime::scheduler;
 
 use mio::event::Source;
 use std::fmt;
@@ -61,7 +60,7 @@ use crate::runtime::scheduler::SchedulerHandleEnum;
 /// [`AsyncWrite`]: crate::io::AsyncWrite
 /// [`TcpListener`]: crate::net::TcpListener
 /// [`clear_readiness`]: Registration::clear_readiness
-/// [`poll_read_ready`]: Registration::poll_read_ready
+/// [`poll_read_ready`]: Registration::pollReadReady
 /// [`poll_write_ready`]: Registration::poll_write_ready
 #[cfg(any(feature = "net", all(unix, feature = "process"), all(unix, feature = "signal"), ))]
 pub(crate) struct PollEvented<E: Source> {
@@ -111,7 +110,7 @@ impl<E: Source> PollEvented<E> {
 
     #[cfg(all(feature = "process", target_os = "linux"))]
     pub(crate) fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.registration.poll_read_ready(cx).map_err(io::Error::from).map_ok(|_| ())
+        self.registration.pollReadReady(cx).map_err(io::Error::from).map_ok(|_| ())
     }
 
     /// Re-register under new runtime with `interest`.
@@ -133,16 +132,14 @@ use std::task::{Context, Poll};
 #[cfg(any(feature = "net", all(unix, feature = "process")))]
 impl<E: Source> PollEvented<E> {
     // Safety: The caller must ensure that `E` can read into uninitialized memory
-    pub(crate) unsafe fn poll_read<'a>(&'a self,
-                                       cx: &mut Context<'_>,
-                                       buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>>
+    pub(crate) unsafe fn pollRead<'a>(&'a self, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>>
     where
-        &'a E: io::Read + 'a,
+        &'a E: std::io::Read + 'a,
     {
         use std::io::Read;
 
         loop {
-            let evt = ready!(self.registration.poll_read_ready(cx))?;
+            let readyEvent = ready!(self.registration.pollReadReady(cx))?;
 
             let b = &mut *(buf.unfilled_mut() as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]);
 
@@ -155,11 +152,9 @@ impl<E: Source> PollEvented<E> {
                     // When mio is using the epoll or kqueue selector, reading a partially full
                     // buffer is sufficient to show that the socket buffer has been drained.
                     //
-                    // This optimization does not work for level-triggered selectors such as
-                    // windows or when poll is used.
+                    // This optimization does not work for level-triggered selectors such as windows or when poll is used.
                     //
-                    // Read more:
-                    // https://github.com/tokio-rs/tokio/issues/5866
+                    // Read more: https://github.com/tokio-rs/tokio/issues/5866
                     #[cfg(all(
                         not(mio_unsupported_force_poll_poll),
                         any(
@@ -181,18 +176,15 @@ impl<E: Source> PollEvented<E> {
                         )
                     ))]
                     if 0 < n && n < len {
-                        self.registration.clear_readiness(evt);
+                        self.registration.clear_readiness(readyEvent);
                     }
 
-                    // Safety: We trust `TcpStream::read` to have filled up `n` bytes in the
-                    // buffer.
+                    // Safety: We trust `TcpStream::read` to have filled up `n` bytes in the buffer.
                     buf.assume_init(n);
                     buf.advance(n);
                     return Poll::Ready(Ok(()));
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.registration.clear_readiness(evt);
-                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.registration.clear_readiness(readyEvent),
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }

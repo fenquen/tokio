@@ -77,10 +77,10 @@ struct OwnedTasksInner<S: 'static> {
 impl<S: Schedule + 'static> OwnedTasks<S> {
     /// Binds the provided task to this `OwnedTasks` instance. This fails if the `OwnedTasks` has been closed.
     pub(crate) fn bind<T: Future<Output: Send + 'static> + Send + 'static>(&self,
-                                                                           task: T,
+                                                                           future: T,
                                                                            scheduler: S,
                                                                            id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>) {
-        let (task, notified, join) = super::newTask(task, scheduler, id);
+        let (task, notified, join) = super::newTask(future, scheduler, id);
         let notified = unsafe { self.bind_inner(task, notified) };
         (join, notified)
     }

@@ -912,7 +912,7 @@ impl MultiThreadSchedulerHandle {
     pub(super) fn scheduleTask(&self, task: Notified, is_yield: bool) {
         with_current(|multiThreadThreadLocalContext| {
             if let Some(multiThreadThreadLocalContext) = multiThreadThreadLocalContext {
-                // Make sure the task is part of the **current** scheduler
+                // the task is part of the **current** scheduler
                 if self.ptr_eq(&multiThreadThreadLocalContext.worker.multiThreadSchedulerHandle) {
                     // And the current thread still holds a core
                     if let Some(core) = multiThreadThreadLocalContext.core.borrow_mut().as_mut() {
@@ -1086,7 +1086,7 @@ impl<'a> Lock<inject::InjectSyncState> for &'a MultiThreadSchedulerHandle {
 fn with_current<R>(f: impl FnOnce(Option<&MultiThreadThreadLocalContext>) -> R) -> R {
     use scheduler::ThreadLocalContextEnum::MultiThread;
 
-    context::with_scheduler(|ctx| match ctx {
+    context::withThreadLocalContextEnum(|ctx| match ctx {
         Some(MultiThread(ctx)) => f(Some(ctx)),
         _ => f(None),
     })

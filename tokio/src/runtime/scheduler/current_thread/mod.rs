@@ -435,7 +435,7 @@ impl Schedule for Arc<CurrentThreadSchedulerHandle> {
     fn schedule(&self, task: task::Notified<Self>) {
         use scheduler::ThreadLocalContextEnum::CurrentThread;
 
-        context::with_scheduler(|maybe_cx| match maybe_cx {
+        context::withThreadLocalContextEnum(|maybe_cx| match maybe_cx {
             Some(CurrentThread(cx)) if Arc::ptr_eq(self, &cx.handle) => {
                 let mut core = cx.core.borrow_mut();
 

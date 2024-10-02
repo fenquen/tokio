@@ -2,7 +2,7 @@
 
 use crate::loom::cell::UnsafeCell;
 use crate::loom::sync::Arc;
-use crate::runtime::scheduler::multi_thread::{Overflow, Stats};
+use crate::runtime::scheduler::multi_thread::{Overflow};
 use crate::runtime::task;
 
 use std::mem::{self, MaybeUninit};

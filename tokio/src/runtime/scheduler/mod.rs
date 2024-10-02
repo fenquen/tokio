@@ -34,13 +34,6 @@ pub(crate) enum SchedulerHandleEnum {
     MultiThread(Arc<MultiThreadSchedulerHandle>),
 }
 
-#[cfg(feature = "rt")]
-pub(super) enum ThreadLocalContextEnum {
-    CurrentThread(current_thread::Context),
-    #[cfg(feature = "rt-multi-thread")]
-    MultiThread(multi_thread::MultiThreadThreadLocalContext),
-}
-
 impl SchedulerHandleEnum {
     pub(crate) fn driver(&self) -> &driver::DriverHandle {
         match *self {
@@ -51,6 +44,14 @@ impl SchedulerHandleEnum {
         }
     }
 }
+
+#[cfg(feature = "rt")]
+pub(super) enum ThreadLocalContextEnum {
+    CurrentThread(current_thread::Context),
+    #[cfg(feature = "rt-multi-thread")]
+    MultiThread(multi_thread::MultiThreadThreadLocalContext),
+}
+
 
 cfg_rt! {
     use crate::future::Future;
@@ -91,9 +92,9 @@ cfg_rt! {
 
         pub(crate) fn spawn<F:Future<Output: Send + 'static> + Send + 'static>(&self, future: F, id: Id) -> JoinHandle<F::Output> {
             match self {
-                SchedulerHandleEnum::CurrentThread(h) => current_thread::CurrentThreadSchedulerHandle::spawn(h, future, id),
+                SchedulerHandleEnum::CurrentThread(h) => CurrentThreadSchedulerHandle::spawn(h, future, id),
                 #[cfg(feature = "rt-multi-thread")]
-                SchedulerHandleEnum::MultiThread(h) => multi_thread::MultiThreadSchedulerHandle::spawn(h, future, id),
+                SchedulerHandleEnum::MultiThread(h) => MultiThreadSchedulerHandle::spawn(h, future, id),
             }
         }
 

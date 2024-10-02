@@ -264,7 +264,7 @@ impl UnixStream {
     ///
     /// [`readable`]: method@Self::readable
     pub fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.registration().poll_read_ready(cx).map_ok(|_| ())
+        self.io.registration().pollReadReady(cx).map_ok(|_| ())
     }
 
     /// Try to read data from the stream into the provided buffer, returning how
@@ -775,7 +775,7 @@ impl UnixStream {
     ) -> io::Result<R> {
         self.io
             .registration()
-            .async_io(interest, || self.io.try_io(&mut f))
+            .performAsyncIO(interest, || self.io.try_io(&mut f))
             .await
     }
 
@@ -1042,7 +1042,7 @@ impl UnixStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         // Safety: `UnixStream::read` correctly handles reads into uninitialized memory
-        unsafe { self.io.poll_read(cx, buf) }
+        unsafe { self.io.pollRead(cx, buf) }
     }
 
     pub(crate) fn poll_write_priv(

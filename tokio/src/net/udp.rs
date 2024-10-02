@@ -507,91 +507,14 @@ impl UdpSocket {
         self.io.registration().poll_write_ready(cx).map_ok(|_| ())
     }
 
-    /// Sends data on the socket to the remote address that the socket is
-    /// connected to.
-    ///
-    /// The [`connect`] method will connect this socket to a remote address.
-    /// This method will fail if the socket is not connected.
-    ///
-    /// [`connect`]: method@Self::connect
-    ///
-    /// # Return
-    ///
-    /// On success, the number of bytes sent is returned, otherwise, the
-    /// encountered error is returned.
-    ///
-    /// # Cancel safety
-    ///
-    /// This method is cancel safe. If `send` is used as the event in a
-    /// [`tokio::select!`](crate::select) statement and some other branch
-    /// completes first, then it is guaranteed that the message was not sent.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::io;
-    /// use tokio::net::UdpSocket;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> io::Result<()> {
-    ///     // Bind socket
-    ///     let socket = UdpSocket::bind("127.0.0.1:8080").await?;
-    ///     socket.connect("127.0.0.1:8081").await?;
-    ///
-    ///     // Send a message
-    ///     socket.send(b"hello world").await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.io
-            .registration()
-            .async_io(Interest::WRITABLE, || self.io.send(buf))
-            .await
+        self.io.registration.performAsyncIO(Interest::WRITABLE, || self.io.send(buf)).await
     }
 
-    /// Attempts to send data on the socket to the remote address to which it
-    /// was previously `connect`ed.
-    ///
-    /// The [`connect`] method will connect this socket to a remote address.
-    /// This method will fail if the socket is not connected.
-    ///
-    /// Note that on multiple calls to a `poll_*` method in the send direction,
-    /// only the `Waker` from the `Context` passed to the most recent call will
-    /// be scheduled to receive a wakeup.
-    ///
-    /// # Return value
-    ///
-    /// The function returns:
-    ///
-    /// * `Poll::Pending` if the socket is not available to write
-    /// * `Poll::Ready(Ok(n))` `n` is the number of bytes sent
-    /// * `Poll::Ready(Err(e))` if an error is encountered.
-    ///
-    /// # Errors
-    ///
-    /// This function may encounter any standard I/O error except `WouldBlock`.
-    ///
-    /// [`connect`]: method@Self::connect
     pub fn poll_send(&self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        self.io
-            .registration()
-            .poll_write_io(cx, || self.io.send(buf))
+        self.io.registration().poll_write_io(cx, || self.io.send(buf))
     }
 
-    /// Tries to send data on the socket to the remote address to which it is
-    /// connected.
-    ///
-    /// When the socket buffer is full, `Err(io::ErrorKind::WouldBlock)` is
-    /// returned. This function is usually paired with `writable()`.
-    ///
-    /// # Returns
-    ///
-    /// If successful, `Ok(n)` is returned, where `n` is the number of bytes
-    /// sent. If the socket is not ready to send data,
-    /// `Err(ErrorKind::WouldBlock)` is returned.
-    ///
     /// # Examples
     ///
     /// ```no_run
@@ -629,9 +552,7 @@ impl UdpSocket {
     /// }
     /// ```
     pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.io
-            .registration()
-            .try_io(Interest::WRITABLE, || self.io.send(buf))
+        self.io.registration().try_io(Interest::WRITABLE, || self.io.send(buf))
     }
 
     /// Waits for the socket to become readable.
@@ -724,7 +645,7 @@ impl UdpSocket {
     ///
     /// [`readable`]: method@Self::readable
     pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.registration().poll_read_ready(cx).map_ok(|_| ())
+        self.io.registration().pollReadReady(cx).map_ok(|_| ())
     }
 
     /// Receives a single datagram message on the socket from the remote address
@@ -767,7 +688,7 @@ impl UdpSocket {
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.io
             .registration()
-            .async_io(Interest::READABLE, || self.io.recv(buf))
+            .performAsyncIO(Interest::READABLE, || self.io.recv(buf))
             .await
     }
 
@@ -968,7 +889,7 @@ impl UdpSocket {
         /// }
         /// ```
         pub async fn recv_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize> {
-            self.io.registration().async_io(Interest::READABLE, || {
+            self.io.registration().performAsyncIO(Interest::READABLE, || {
                 let dst = buf.chunk_mut();
                 let dst =
                     unsafe { &mut *(dst as *mut _ as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]) };
@@ -1099,7 +1020,7 @@ impl UdpSocket {
         /// }
         /// ```
         pub async fn recv_buf_from<B: BufMut>(&self, buf: &mut B) -> io::Result<(usize, SocketAddr)> {
-            self.io.registration().async_io(Interest::READABLE, || {
+            self.io.registration().performAsyncIO(Interest::READABLE, || {
                 let dst = buf.chunk_mut();
                 let dst =
                     unsafe { &mut *(dst as *mut _ as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]) };
@@ -1249,7 +1170,7 @@ impl UdpSocket {
     async fn send_to_addr(&self, buf: &[u8], target: SocketAddr) -> io::Result<usize> {
         self.io
             .registration()
-            .async_io(Interest::WRITABLE, || self.io.send_to(buf, target))
+            .performAsyncIO(Interest::WRITABLE, || self.io.send_to(buf, target))
             .await
     }
 
@@ -1297,7 +1218,7 @@ impl UdpSocket {
     pub async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.io
             .registration()
-            .async_io(Interest::READABLE, || self.io.recv_from(buf))
+            .performAsyncIO(Interest::READABLE, || self.io.recv_from(buf))
             .await
     }
 
@@ -1488,7 +1409,7 @@ impl UdpSocket {
     ) -> io::Result<R> {
         self.io
             .registration()
-            .async_io(interest, || self.io.try_io(&mut f))
+            .performAsyncIO(interest, || self.io.try_io(&mut f))
             .await
     }
 
@@ -1539,7 +1460,7 @@ impl UdpSocket {
     pub async fn peek_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.io
             .registration()
-            .async_io(Interest::READABLE, || self.io.peek_from(buf))
+            .performAsyncIO(Interest::READABLE, || self.io.peek_from(buf))
             .await
     }
 
@@ -1656,7 +1577,7 @@ impl UdpSocket {
     pub async fn peek_sender(&self) -> io::Result<SocketAddr> {
         self.io
             .registration()
-            .async_io(Interest::READABLE, || self.peek_sender_inner())
+            .performAsyncIO(Interest::READABLE, || self.peek_sender_inner())
             .await
     }
 

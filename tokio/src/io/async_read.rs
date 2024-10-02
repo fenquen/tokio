@@ -42,40 +42,28 @@ use std::task::{Context, Poll};
 /// [`Read::read`]: std::io::Read::read
 /// [`AsyncReadExt`]: crate::io::AsyncReadExt
 pub trait AsyncRead {
-    /// Attempts to read from the `AsyncRead` into `buf`.
-    ///
-    /// On success, returns `Poll::Ready(Ok(()))` and places data in the
-    /// unfilled portion of `buf`. If no data was read (`buf.filled().len()` is
-    /// unchanged), it implies that EOF has been reached.
-    ///
     /// If no data is available for reading, the method returns `Poll::Pending`
     /// and arranges for the current task (via `cx.waker()`) to receive a
     /// notification when the object becomes readable or is closed.
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>>;
-}
-
-macro_rules! deref_async_read {
-    () => {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-            buf: &mut ReadBuf<'_>,
-        ) -> Poll<io::Result<()>> {
-            Pin::new(&mut **self).poll_read(cx, buf)
-        }
-    };
+    fn poll_read(self: Pin<&mut Self>,
+                 context: &mut Context<'_>,
+                 readBuf: &mut ReadBuf<'_>) -> Poll<io::Result<()>>;
 }
 
 impl<T: ?Sized + AsyncRead + Unpin> AsyncRead for Box<T> {
-    deref_async_read!();
+    fn poll_read(mut self: Pin<&mut Self>,
+                 context: &mut Context<'_>,
+                 buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut **self).poll_read(context, buf)
+    }
 }
 
 impl<T: ?Sized + AsyncRead + Unpin> AsyncRead for &mut T {
-    deref_async_read!();
+    fn poll_read(mut self: Pin<&mut Self>,
+                 context: &mut Context<'_>,
+                 buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut **self).poll_read(context, buf)
+    }
 }
 
 impl<P: DerefMut<Target: AsyncRead> + Unpin> AsyncRead for Pin<P> {

@@ -2,7 +2,7 @@ use crate::loom::thread::AccessError;
 use crate::runtime::coop;
 
 use std::cell::Cell;
-
+use crate::runtime::scheduler::ThreadLocalContextEnum;
 #[cfg(any(feature = "rt", feature = "macros", feature = "time"))]
 use crate::util::rand::FastRand;
 
@@ -40,7 +40,7 @@ struct Context {
 
     /// Handle to the scheduler's internal "context"
     #[cfg(feature = "rt")]
-    threadLocalContextEnum: Scoped<scheduler::ThreadLocalContextEnum>,
+    threadLocalContextEnum: Scoped<ThreadLocalContextEnum>,
 
     #[cfg(feature = "rt")]
     current_task_id: Cell<Option<Id>>,
@@ -133,9 +133,9 @@ cfg_rt! {
 
     #[track_caller]
     pub(crate) fn defer(waker: &Waker) {
-        with_scheduler(|maybe_scheduler| {
-            if let Some(scheduler) = maybe_scheduler {
-                scheduler.defer(waker);
+        withThreadLocalContextEnum(|threadLocalContextEnum| {
+            if let Some(threadLocalContextEnum) = threadLocalContextEnum {
+                threadLocalContextEnum.defer(waker);
             } else {
                 // Called from outside the runtime, immediately wake the task.
                 waker.wake_by_ref();
@@ -143,12 +143,12 @@ cfg_rt! {
         });
     }
 
-    pub(super) fn set_scheduler<R>(v: &scheduler::ThreadLocalContextEnum, f: impl FnOnce() -> R) -> R {
+    pub(super) fn set_scheduler<R>(v: &ThreadLocalContextEnum, f: impl FnOnce() -> R) -> R {
         CONTEXT.with(|context| context.threadLocalContextEnum.set(v, f))
     }
 
     #[track_caller]
-    pub(super) fn with_scheduler<R>(f: impl FnOnce(Option<&scheduler::ThreadLocalContextEnum>) -> R) -> R {
+    pub(super) fn withThreadLocalContextEnum<R>(f: impl FnOnce(Option<&ThreadLocalContextEnum>) -> R) -> R {
         let mut f = Some(f);
         CONTEXT.try_with(|c| c.threadLocalContextEnum.with(f.take().unwrap())).unwrap_or_else(|_| (f.take().unwrap())(None))
     }

@@ -364,7 +364,7 @@ impl UnixDatagram {
     ///
     /// [`readable`]: method@Self::readable
     pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.io.registration().poll_read_ready(cx).map_ok(|_| ())
+        self.io.registration().pollReadReady(cx).map_ok(|_| ())
     }
 
     /// Creates a new `UnixDatagram` bound to the specified path.
@@ -629,7 +629,7 @@ impl UnixDatagram {
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.io
             .registration()
-            .async_io(Interest::WRITABLE, || self.io.send(buf))
+            .performAsyncIO(Interest::WRITABLE, || self.io.send(buf))
             .await
     }
 
@@ -759,7 +759,7 @@ impl UnixDatagram {
     pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.io
             .registration()
-            .async_io(Interest::READABLE, || self.io.recv(buf))
+            .performAsyncIO(Interest::READABLE, || self.io.recv(buf))
             .await
     }
 
@@ -914,7 +914,7 @@ impl UnixDatagram {
         /// # }
         /// ```
         pub async fn recv_buf_from<B: BufMut>(&self, buf: &mut B) -> io::Result<(usize, SocketAddr)> {
-            self.io.registration().async_io(Interest::READABLE, || {
+            self.io.registration().performAsyncIO(Interest::READABLE, || {
                 let dst = buf.chunk_mut();
                 let dst =
                     unsafe { &mut *(dst as *mut _ as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]) };
@@ -1023,7 +1023,7 @@ impl UnixDatagram {
         /// # }
         /// ```
         pub async fn recv_buf<B: BufMut>(&self, buf: &mut B) -> io::Result<usize> {
-            self.io.registration().async_io(Interest::READABLE, || {
+            self.io.registration().performAsyncIO(Interest::READABLE, || {
                 let dst = buf.chunk_mut();
                 let dst =
                     unsafe { &mut *(dst as *mut _ as *mut [std::mem::MaybeUninit<u8>] as *mut [u8]) };
@@ -1085,7 +1085,7 @@ impl UnixDatagram {
     {
         self.io
             .registration()
-            .async_io(Interest::WRITABLE, || self.io.send_to(buf, target.as_ref()))
+            .performAsyncIO(Interest::WRITABLE, || self.io.send_to(buf, target.as_ref()))
             .await
     }
 
@@ -1133,7 +1133,7 @@ impl UnixDatagram {
         let (n, addr) = self
             .io
             .registration()
-            .async_io(Interest::READABLE, || self.io.recv_from(buf))
+            .performAsyncIO(Interest::READABLE, || self.io.recv_from(buf))
             .await?;
 
         Ok((n, SocketAddr(addr)))
@@ -1407,7 +1407,7 @@ impl UnixDatagram {
     ) -> io::Result<R> {
         self.io
             .registration()
-            .async_io(interest, || self.io.try_io(&mut f))
+            .performAsyncIO(interest, || self.io.try_io(&mut f))
             .await
     }
 

@@ -1,8 +1,6 @@
-#![cfg_attr(not(feature = "net"), allow(dead_code))]
-
 use crate::io::interest::Interest;
 use crate::runtime::io::{Direction, IODriverHandle, ReadyEvent, ScheduledIO};
-use crate::runtime::{coop, scheduler};
+use crate::runtime::{coop};
 
 use mio::event::Source;
 use std::io;
@@ -66,72 +64,53 @@ impl Registration {
 
     // Uses the poll path, requiring the caller to ensure mutual exclusion for
     // correctness. Only the last task to call this function is notified.
-    pub(crate) fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<ReadyEvent>> {
-        self.poll_ready(cx, Direction::Read)
+    pub(crate) fn pollReadReady(&self, cx: &mut Context<'_>) -> Poll<io::Result<ReadyEvent>> {
+        self.pollReady(cx, Direction::Read)
     }
 
     // Uses the poll path, requiring the caller to ensure mutual exclusion for
     // correctness. Only the last task to call this function is notified.
     pub(crate) fn poll_write_ready(&self, cx: &mut Context<'_>) -> Poll<io::Result<ReadyEvent>> {
-        self.poll_ready(cx, Direction::Write)
+        self.pollReady(cx, Direction::Write)
     }
 
     // Uses the poll path, requiring the caller to ensure mutual exclusion for
     // correctness. Only the last task to call this function is notified.
     #[cfg(not(target_os = "wasi"))]
-    pub(crate) fn poll_read_io<R>(
-        &self,
-        cx: &mut Context<'_>,
-        f: impl FnMut() -> io::Result<R>,
-    ) -> Poll<io::Result<R>> {
+    pub(crate) fn poll_read_io<R>(&self, cx: &mut Context<'_>, f: impl FnMut() -> io::Result<R>) -> Poll<io::Result<R>> {
         self.poll_io(cx, Direction::Read, f)
     }
 
     // Uses the poll path, requiring the caller to ensure mutual exclusion for
     // correctness. Only the last task to call this function is notified.
-    pub(crate) fn poll_write_io<R>(
-        &self,
-        cx: &mut Context<'_>,
-        f: impl FnMut() -> io::Result<R>,
-    ) -> Poll<io::Result<R>> {
+    pub(crate) fn poll_write_io<R>(&self, cx: &mut Context<'_>, f: impl FnMut() -> io::Result<R>) -> Poll<io::Result<R>> {
         self.poll_io(cx, Direction::Write, f)
     }
 
     /// Polls for events on the I/O resource's `direction` readiness stream.
     ///
-    /// If called with a task context, notify the task when a new event is
-    /// received.
-    fn poll_ready(
-        &self,
-        cx: &mut Context<'_>,
-        direction: Direction,
-    ) -> Poll<io::Result<ReadyEvent>> {
-        ready!(crate::trace::trace_leaf(cx));
-        // Keep track of task budget
-        let coop = ready!(crate::runtime::coop::poll_proceed(cx));
-        let ev = ready!(self.scheduledIo.poll_readiness(cx, direction));
+    /// If called with a task context, notify the task when a new event is received.
+    fn pollReady(&self, cx: &mut Context<'_>, direction: Direction) -> Poll<io::Result<ReadyEvent>> {
+        let coop = ready!(coop::poll_proceed(cx));
 
-        if ev.isShutdown {
+        let readyEvent = ready!(self.scheduledIo.pollReady(cx, direction));
+
+        if readyEvent.isShutdown {
             return Poll::Ready(Err(gone()));
         }
 
         coop.made_progress();
-        Poll::Ready(Ok(ev))
+
+        Poll::Ready(Ok(readyEvent))
     }
 
-    fn poll_io<R>(
-        &self,
-        cx: &mut Context<'_>,
-        direction: Direction,
-        mut f: impl FnMut() -> io::Result<R>,
-    ) -> Poll<io::Result<R>> {
+    fn poll_io<R>(&self, cx: &mut Context<'_>,
+                  direction: Direction, mut f: impl FnMut() -> io::Result<R>) -> Poll<io::Result<R>> {
         loop {
-            let ev = ready!(self.poll_ready(cx, direction))?;
+            let ev = ready!(self.pollReady(cx, direction))?;
 
             match f() {
-                Ok(ret) => {
-                    return Poll::Ready(Ok(ret));
-                }
+                Ok(ret) => return Poll::Ready(Ok(ret)),
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     self.clear_readiness(ev);
                 }
@@ -171,7 +150,7 @@ impl Registration {
         Ok(readyEvent)
     }
 
-    pub(crate) async fn async_io<R>(&self, interest: Interest, mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
+    pub(crate) async fn performAsyncIO<R>(&self, interest: Interest, mut f: impl FnMut() -> io::Result<R>) -> io::Result<R> {
         loop {
             let readyEvent = self.pollReadinessAsync(interest).await?;
 

@@ -331,12 +331,8 @@ impl OwnedReadHalf {
 }
 
 impl AsyncRead for OwnedReadHalf {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        self.inner.poll_read_priv(cx, buf)
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        self.inner.pollRead(cx, buf)
     }
 }
 
