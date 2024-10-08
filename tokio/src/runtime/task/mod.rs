@@ -238,6 +238,14 @@ pub(crate) struct LocalNotified<S: 'static> {
     _not_send: PhantomData<*const ()>,
 }
 
+impl<S: Schedule> LocalNotified<S> {
+    pub(crate) fn run(self) {
+        let rawTask = self.task.rawTask;
+        mem::forget(self);
+        rawTask.poll();
+    }
+}
+
 /// A task that is not owned by any `OwnedTasks`. Used for blocking tasks.
 /// This type holds two ref-counts.
 pub(crate) struct UnownedTask<S: 'static> {
@@ -304,9 +312,9 @@ pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Sch
     (unownedTask, join)
 }
 
-/// This is the constructor for a new rawTask. Three references to the rawTask are
-/// created. The first task reference is usually put into an `OwnedTasks`
-/// immediately. The Notified is sent to the scheduler as an ordinary notification.
+/// This is the constructor for a new rawTask. Three references to the rawTask are created.
+/// The first task reference is usually put into an `OwnedTasks` immediately.
+/// The Notified is sent to the scheduler as an ordinary notification.
 #[cfg(feature = "rt")]
 fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>) {
     let rawTask = RawTask::new::<T, S>(future, scheduler, taskId);
@@ -370,14 +378,6 @@ impl<S: Schedule> Task<S> {
         let rawTask = self.rawTask;
         mem::forget(self);
         rawTask.shutdown();
-    }
-}
-
-impl<S: Schedule> LocalNotified<S> {
-    pub(crate) fn run(self) {
-        let rawTask = self.task.rawTask;
-        mem::forget(self);
-        rawTask.poll();
     }
 }
 

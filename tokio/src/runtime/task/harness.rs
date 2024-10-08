@@ -48,7 +48,7 @@ impl<T: Future, S: 'static> Harness<T, S> {
 /// Task operations that can be implemented without being generic over the
 /// scheduler or task. Only one version of these methods should exist in the final binary.
 impl RawTask {
-    pub(super) fn drop_reference(self) {
+    pub(super) fn dropRef(self) {
         if self.state().ref_dec() {
             self.dealloc();
         }
@@ -59,7 +59,7 @@ impl RawTask {
     ///
     /// The caller does not need to hold a ref-count besides the one that was
     /// passed to this call.
-    pub(super) fn wake_by_val(&self) {
+    pub(super) fn wakeByVal(&self) {
         use super::state::TransitionToNotifiedByVal;
 
         match self.state().transition_to_notified_by_val() {
@@ -74,7 +74,7 @@ impl RawTask {
                 self.schedule();
 
                 // Now that we have completed the call to schedule, we can release our ref-count.
-                self.drop_reference();
+                self.dropRef();
             }
             TransitionToNotifiedByVal::Dealloc => self.dealloc(),
             TransitionToNotifiedByVal::DoNothing => {}
@@ -83,7 +83,7 @@ impl RawTask {
 
     /// This call notifies the task. It will not consume any ref-counts, but the
     /// caller should hold a ref-count.  This will create a new Notified and submit it if necessary.
-    pub(super) fn wake_by_ref(&self) {
+    pub(super) fn wakeByRef(&self) {
         use super::state::TransitionToNotifiedByRef;
 
         match self.state().transition_to_notified_by_ref() {
@@ -181,7 +181,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
 
                 match self.state().transition2Idle() {
                     TransitionToIdle::Ok => PollFuture::DoNothing,
-                    TransitionToIdle::OkNotified => PollFuture::Notified,
+                    TransitionToIdle::OkNotified => PollFuture::Notified,// transition2Idle时候发现已是notified了
                     TransitionToIdle::OkDealloc => PollFuture::Dealloc,
                     TransitionToIdle::Cancelled => {
                         // the transition to idle failed because the task was cancelled during the poll

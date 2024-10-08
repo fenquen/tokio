@@ -78,12 +78,6 @@ pub(super) enum Tick {
 const TOKEN_WAKEUP: mio::Token = mio::Token(0);
 const TOKEN_SIGNAL: mio::Token = mio::Token(1);
 
-fn _assert_kinds() {
-    fn _assert<T: Send + Sync>() {}
-
-    _assert::<IODriverHandle>();
-}
-
 impl IODriver {
     /// Creates a new event loop, returning any error that happened during the creation.
     pub(crate) fn new(eventCount: usize) -> io::Result<(IODriver, IODriverHandle)> {
@@ -182,8 +176,7 @@ impl IODriverHandle {
     /// needs to otherwise be sent to the main reactor. If the reactor is
     /// currently blocked inside of `turn` then it will wake up and soon return
     /// after this method has been called. If the reactor is not currently
-    /// blocked in `turn`, then the next call to `turn` will not block and
-    /// return immediately.
+    /// blocked in `turn`, then the next call to `turn` will not block and return immediately.
     pub(crate) fn unpark(&self) {
         #[cfg(not(target_os = "wasi"))]
         self.mioWaker.wake().expect("failed to wake I/O driver");
@@ -194,7 +187,7 @@ impl IODriverHandle {
 
         // we should remove the `scheduled_io` from the `registrations` set if registering
         // the `source` with the OS fails. Otherwise, it will leak the `scheduled_io`.
-        if let Err(e) = self.mioRegistry.register(mioSource, scheduledIO.token(), interest.to_mio()) {
+        if let Err(e) = self.mioRegistry.register(mioSource, scheduledIO.mioToken(), interest.to_mio()) {
             // safety: `scheduled_io` is part of the `registrations` set.
             unsafe { self.registrationSet.remove(&mut self.synced.lock(), &scheduledIO) };
             return Err(e);

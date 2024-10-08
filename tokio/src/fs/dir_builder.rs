@@ -29,39 +29,6 @@ impl DirBuilder {
     }
 
     /// Creates the specified directory with the configured options.
-    ///
-    /// It is considered an error if the directory already exists unless
-    /// recursive mode is enabled.
-    ///
-    /// This is an async version of [`std::fs::DirBuilder::create`].
-    ///
-    /// # Errors
-    ///
-    /// An error will be returned under the following circumstances:
-    ///
-    /// * Path already points to an existing file.
-    /// * Path already points to an existing directory and the mode is
-    ///   non-recursive.
-    /// * The calling process doesn't have permissions to create the directory
-    ///   or its missing parents.
-    /// * Other I/O error occurred.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::DirBuilder;
-    /// use std::io;
-    ///
-    /// #[tokio::main]
-    /// async fn main() -> io::Result<()> {
-    ///     DirBuilder::new()
-    ///         .recursive(true)
-    ///         .create("/tmp/foo/bar/baz")
-    ///         .await?;
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     pub async fn create(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let path = path.as_ref().to_owned();
         let mut builder = std::fs::DirBuilder::new();

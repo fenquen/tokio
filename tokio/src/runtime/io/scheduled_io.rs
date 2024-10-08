@@ -184,7 +184,7 @@ const TICK: bit::Pack = READINESS.then(15);
 const SHUTDOWN: bit::Pack = TICK.then(1);
 
 impl ScheduledIO {
-    pub(crate) fn token(&self) -> mio::Token {
+    pub(crate) fn mioToken(&self) -> mio::Token {
         // use `expose_addr` when stable
         mio::Token(self as *const _ as usize)
     }

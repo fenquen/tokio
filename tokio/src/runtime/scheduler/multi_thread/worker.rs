@@ -233,7 +233,7 @@ pub(super) fn create(workerCount: usize,
             parker: Some(parker),
             checkGlobalQueueInterval: stats.tuned_global_queue_interval(&config),
             stats,
-            rand: FastRand::from_seed(config.seed_generator.next_seed()),
+            rand: FastRand::from_seed(config.rngSeedGenerator.next_seed()),
         }));
 
         remotes.push(Remote { steal, unParker });
@@ -586,8 +586,7 @@ impl MultiThreadThreadLocalContext {
         if core.tick % self.worker.multiThreadSchedulerHandle.workerSharedState.config.event_interval == 0 {
             core.stats.end_processing_scheduled_tasks();
 
-            // Call `park` with a 0 timeout. This enables the I/O driver, timer, ...
-            // to run without actually putting the thread to sleep.
+            // Call `park` with a 0 timeout. This enables the I/O driver, timer, ...to run without actually putting the thread to sleep.
             core = self.park_timeout(core, Some(Duration::from_millis(0)));
 
             // Run regularly scheduled maintenance
@@ -658,7 +657,7 @@ impl MultiThreadThreadLocalContext {
         core.parker = Some(parker);
 
         if core.should_notify_others() {
-            self.worker.multiThreadSchedulerHandle.notify_parked_remote();
+            self.worker.multiThreadSchedulerHandle.notifyOneRemote();
         }
 
         core
@@ -924,7 +923,7 @@ impl MultiThreadSchedulerHandle {
 
             // otherwise, use the inject queue.
             self.push_remote_task(task);
-            self.notify_parked_remote();
+            self.notifyOneRemote();
         });
     }
 
@@ -955,7 +954,7 @@ impl MultiThreadSchedulerHandle {
         // scheduling is from a resource driver. As notifications often come in
         // batches, the notification is delayed until the park is complete.
         if should_notify && core.parker.is_some() {
-            self.notify_parked_remote();
+            self.notifyOneRemote();
         }
     }
 
@@ -978,41 +977,37 @@ impl MultiThreadSchedulerHandle {
         }
     }
 
-    pub(super) fn close(&self) {
-        if self.workerSharedState.injectShared.close(&mut self.workerSharedState.synced.lock().injectSyncState) {
-            self.notify_all();
-        }
-    }
-
-    fn notify_parked_remote(&self) {
+    fn notifyOneRemote(&self) {
         if let Some(workerToNotifyIndex) = self.workerSharedState.idle.getWorkerToNotify(&self.workerSharedState) {
             self.workerSharedState.remotes[workerToNotifyIndex].unParker.unpark(&self.driverHandle);
         }
     }
 
-    pub(super) fn notify_all(&self) {
-        for remote in &self.workerSharedState.remotes[..] {
-            remote.unParker.unpark(&self.driverHandle);
+    pub(super) fn close(&self) {
+        if self.workerSharedState.injectShared.close(&mut self.workerSharedState.synced.lock().injectSyncState) {
+            for remote in &self.workerSharedState.remotes[..] {
+                remote.unParker.unpark(&self.driverHandle);
+            }
         }
     }
 
     fn notify_if_work_pending(&self) {
         for remote in &self.workerSharedState.remotes[..] {
             if !remote.steal.is_empty() {
-                self.notify_parked_remote();
+                self.notifyOneRemote();
                 return;
             }
         }
 
         if !self.workerSharedState.injectShared.is_empty() {
-            self.notify_parked_remote();
+            self.notifyOneRemote();
         }
     }
 
     fn transition_worker_from_searching(&self) {
         // the final searching worker. Because work was found, we need to notify another worker.
         if self.workerSharedState.idle.transition_worker_from_searching() {
-            self.notify_parked_remote();
+            self.notifyOneRemote();
         }
     }
 

@@ -1,7 +1,3 @@
-#![cfg_attr(not(feature = "rt"), allow(dead_code))]
-
-//! Signal driver
-
 use crate::runtime::{driver, io};
 use crate::signal::registry::globals;
 

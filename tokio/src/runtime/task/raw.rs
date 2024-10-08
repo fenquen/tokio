@@ -100,7 +100,7 @@ const fn get_trailer_offset(header_size: usize,
 
     let core_misalignment = offset % core_align;
     if core_misalignment > 0 {
-        offset += core_align - core_misalignment;
+        offset = offset + (core_align - core_misalignment);
     }
 
     offset += core_size;
@@ -254,11 +254,8 @@ unsafe fn dealloc<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {
     Harness::<T, S>::from_raw(headerPtr).dealloc();
 }
 
-unsafe fn try_read_output<T: Future, S: Schedule>(ptr: NonNull<Header>,
-                                                  dst: *mut (),
-                                                  waker: &Waker) {
+unsafe fn try_read_output<T: Future, S: Schedule>(ptr: NonNull<Header>, dst: *mut (), waker: &Waker) {
     let out = &mut *(dst as *mut Poll<super::Result<T::Output>>);
-
     Harness::<T, S>::from_raw(ptr).try_read_output(out, waker);
 }
 

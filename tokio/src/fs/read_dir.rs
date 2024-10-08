@@ -33,8 +33,7 @@ pub async fn read_dir(path: impl AsRef<Path>) -> io::Result<ReadDir> {
         let remain = ReadDir::next_chunk(&mut buf, &mut std);
 
         Ok(ReadDir(State::Idle(Some((buf, std, remain)))))
-    })
-    .await
+    }).await
 }
 
 /// Reads the entries in a directory.

@@ -66,11 +66,7 @@ impl<T: ?Sized + AsyncSeek + Unpin> AsyncSeek for &mut T {
     deref_async_seek!();
 }
 
-impl<P> AsyncSeek for Pin<P>
-where
-    P: DerefMut + Unpin,
-    P::Target: AsyncSeek,
-{
+impl<P: DerefMut<Target: AsyncSeek> + Unpin> AsyncSeek for Pin<P> {
     fn start_seek(self: Pin<&mut Self>, pos: SeekFrom) -> io::Result<()> {
         self.get_mut().as_mut().start_seek(pos)
     }

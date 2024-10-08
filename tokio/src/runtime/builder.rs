@@ -472,7 +472,7 @@ impl Builder {
                 event_interval: self.event_interval,
                 local_queue_capacity: self.local_queue_capacity,
                 disable_lifo_slot: self.disable_lifo_slot,
-                seed_generator: seed_generator_1,
+                rngSeedGenerator: seed_generator_1,
             },
         );
 
@@ -547,7 +547,7 @@ impl Builder {
                     event_interval: self.event_interval,
                     local_queue_capacity: self.local_queue_capacity,
                     disable_lifo_slot: self.disable_lifo_slot,
-                    seed_generator: seed_generator_1,
+                    rngSeedGenerator: seed_generator_1,
                 },
             );
 

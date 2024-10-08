@@ -118,7 +118,7 @@ impl<E: Source> PollEvented<E> {
     pub(crate) fn reregister(&mut self, interest: Interest) -> io::Result<()> {
         let io = self.mioSource.as_mut().unwrap(); // As io shouldn't ever be None, just unwrap here.
         let _ = self.registration.deregister(io);
-        self.registration = Registration::register(io, interest, scheduler::SchedulerHandleEnum::current())?;
+        self.registration = Registration::register(io, interest, SchedulerHandleEnum::current())?;
 
         Ok(())
     }

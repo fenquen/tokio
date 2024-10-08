@@ -116,6 +116,33 @@ impl ParkerUnParkerInner {
         }
     }
 
+    fn park_driver(&self, driver: &mut Driver, driverHandle: &driver::DriverHandle) {
+        match self.state.compare_exchange(EMPTY, PARKED_DRIVER, SeqCst, SeqCst) {
+            Ok(_) => {}
+            Err(NOTIFIED) => {
+                // We must read here, even though we know it will be `NOTIFIED`.
+                // This is because `unpark` may have been called again since we read
+                // `NOTIFIED` in the `compare_exchange` above. We must perform an
+                // acquire operation that synchronizes with that `unpark` to observe
+                // any writes it made before the call to unpark. To do that we must
+                // read from the write it made to `state`.
+                let old = self.state.swap(EMPTY, SeqCst);
+                debug_assert_eq!(old, NOTIFIED, "park state changed unexpectedly");
+
+                return;
+            }
+            Err(actual) => panic!("inconsistent park state; actual = {}", actual),
+        }
+
+        driver.park_timeout(driverHandle, None);
+
+        match self.state.swap(EMPTY, SeqCst) {
+            NOTIFIED => {}      // got a notification, hurray!
+            PARKED_DRIVER => {} // no notification, alas
+            n => panic!("inconsistent park_timeout state: {}", n),
+        }
+    }
+
     fn park_condvar(&self) {
         // Otherwise we need to coordinate going to sleep
         let mut m = self.mutex.lock();
@@ -146,33 +173,6 @@ impl ParkerUnParkerInner {
             }
 
             // spurious wakeup, go back to sleep
-        }
-    }
-
-    fn park_driver(&self, driver: &mut Driver, driverHandle: &driver::DriverHandle) {
-        match self.state.compare_exchange(EMPTY, PARKED_DRIVER, SeqCst, SeqCst) {
-            Ok(_) => {}
-            Err(NOTIFIED) => {
-                // We must read here, even though we know it will be `NOTIFIED`.
-                // This is because `unpark` may have been called again since we read
-                // `NOTIFIED` in the `compare_exchange` above. We must perform an
-                // acquire operation that synchronizes with that `unpark` to observe
-                // any writes it made before the call to unpark. To do that we must
-                // read from the write it made to `state`.
-                let old = self.state.swap(EMPTY, SeqCst);
-                debug_assert_eq!(old, NOTIFIED, "park state changed unexpectedly");
-
-                return;
-            }
-            Err(actual) => panic!("inconsistent park state; actual = {}", actual),
-        }
-
-        driver.park_timeout(driverHandle, None);
-
-        match self.state.swap(EMPTY, SeqCst) {
-            NOTIFIED => {}      // got a notification, hurray!
-            PARKED_DRIVER => {} // no notification, alas
-            n => panic!("inconsistent park_timeout state: {}", n),
         }
     }
 

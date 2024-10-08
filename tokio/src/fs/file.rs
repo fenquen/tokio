@@ -114,34 +114,6 @@ impl File {
     /// Attempts to open a file in read-only mode.
     ///
     /// See [`OpenOptions`] for more details.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if called from outside of the Tokio
-    /// runtime or if path does not already exist. Other errors may also be
-    /// returned according to `OpenOptions::open`.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncReadExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut file = File::open("foo.txt").await?;
-    ///
-    /// let mut contents = vec![];
-    /// file.read_to_end(&mut contents).await?;
-    ///
-    /// println!("len = {}", contents.len());
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// The [`read_to_end`] method is defined on the [`AsyncReadExt`] trait.
-    ///
-    /// [`read_to_end`]: fn@crate::io::AsyncReadExt::read_to_end
-    /// [`AsyncReadExt`]: trait@crate::io::AsyncReadExt
     pub async fn open(path: impl AsRef<Path>) -> io::Result<File> {
         let path = path.as_ref().to_owned();
         let std = asyncify(|| StdFile::open(path)).await?;
@@ -151,122 +123,32 @@ impl File {
 
     /// Opens a file in write-only mode.
     ///
-    /// This function will create a file if it does not exist, and will truncate
-    /// it if it does.
+    /// This function will create a file if it does not exist, and will truncate it if it does.
     ///
     /// See [`OpenOptions`] for more details.
-    ///
-    /// # Errors
-    ///
-    /// Results in an error if called from outside of the Tokio runtime or if
-    /// the underlying [`create`] call results in an error.
-    ///
-    /// [`create`]: std::fs::File::create
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncWriteExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut file = File::create("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
-    ///
-    /// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
     pub async fn create(path: impl AsRef<Path>) -> io::Result<File> {
         let path = path.as_ref().to_owned();
         let std_file = asyncify(move || StdFile::create(path)).await?;
         Ok(File::from_std(std_file))
     }
 
-    /// Opens a file in read-write mode.
-    ///
+
     /// This function will create a file if it does not exist, or return an error
-    /// if it does. This way, if the call succeeds, the file returned is guaranteed
-    /// to be new.
+    /// if it does. This way, if the call succeeds, the file returned is guaranteed to be new.
     ///
     /// This option is useful because it is atomic. Otherwise between checking
     /// whether a file exists and creating a new one, the file may have been
     /// created by another process (a TOCTOU race condition / attack).
-    ///
-    /// This can also be written using `File::options().read(true).write(true).create_new(true).open(...)`.
-    ///
-    /// See [`OpenOptions`] for more details.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncWriteExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut file = File::create_new("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
-    ///
-    /// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
     pub async fn create_new<P: AsRef<Path>>(path: P) -> std::io::Result<File> {
-        Self::options()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .await
+        Self::options().read(true).write(true).create_new(true).open(path).await
     }
 
     /// Returns a new [`OpenOptions`] object.
-    ///
-    /// This function returns a new `OpenOptions` object that you can use to
-    /// open or create a file with specific options if `open()` or `create()`
-    /// are not appropriate.
-    ///
-    /// It is equivalent to `OpenOptions::new()`, but allows you to write more
-    /// readable code. Instead of
-    /// `OpenOptions::new().append(true).open("example.log")`,
-    /// you can write `File::options().append(true).open("example.log")`. This
-    /// also avoids the need to import `OpenOptions`.
-    ///
-    /// See the [`OpenOptions::new`] function for more details.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncWriteExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut f = File::options().append(true).open("example.log").await?;
-    /// f.write_all(b"new line\n").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     #[must_use]
     pub fn options() -> OpenOptions {
         OpenOptions::new()
     }
 
-    /// Converts a [`std::fs::File`] to a [`tokio::fs::File`](File).
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// // This line could block. It is not recommended to do this on the Tokio
-    /// // runtime.
-    /// let std_file = std::fs::File::open("foo.txt").unwrap();
-    /// let file = tokio::fs::File::from_std(std_file);
-    /// ```
     pub fn from_std(std: StdFile) -> File {
         File {
             std: Arc::new(std),
@@ -280,28 +162,6 @@ impl File {
     }
 
     /// Attempts to sync all OS-internal metadata to disk.
-    ///
-    /// This function will attempt to ensure that all in-core data reaches the
-    /// filesystem before returning.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncWriteExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut file = File::create("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
-    /// file.sync_all().await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
-    ///
-    /// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
     pub async fn sync_all(&self) -> io::Result<()> {
         let mut inner = self.inner.lock().await;
         inner.complete_inflight().await;
@@ -310,33 +170,7 @@ impl File {
         asyncify(move || std.sync_all()).await
     }
 
-    /// This function is similar to `sync_all`, except that it may not
-    /// synchronize file metadata to the filesystem.
-    ///
-    /// This is intended for use cases that must synchronize content, but don't
-    /// need the metadata on disk. The goal of this method is to reduce disk
-    /// operations.
-    ///
-    /// Note that some platforms may simply implement this in terms of `sync_all`.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncWriteExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut file = File::create("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
-    /// file.sync_data().await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
-    ///
-    /// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
+    /// This function is similar to `sync_all`, except that it may not synchronize file metadata to the filesystem.
     pub async fn sync_data(&self) -> io::Result<()> {
         let mut inner = self.inner.lock().await;
         inner.complete_inflight().await;
@@ -346,35 +180,6 @@ impl File {
     }
 
     /// Truncates or extends the underlying file, updating the size of this file to become size.
-    ///
-    /// If the size is less than the current file's size, then the file will be
-    /// shrunk. If it is greater than the current file's size, then the file
-    /// will be extended to size and have all of the intermediate data filled in
-    /// with 0s.
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the file is not opened for
-    /// writing.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    /// use tokio::io::AsyncWriteExt;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let mut file = File::create("foo.txt").await?;
-    /// file.write_all(b"hello, world!").await?;
-    /// file.set_len(10).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// The [`write_all`] method is defined on the [`AsyncWriteExt`] trait.
-    ///
-    /// [`write_all`]: fn@crate::io::AsyncWriteExt::write_all
-    /// [`AsyncWriteExt`]: trait@crate::io::AsyncWriteExt
     pub async fn set_len(&self, size: u64) -> io::Result<()> {
         let mut inner = self.inner.lock().await;
         inner.complete_inflight().await;
@@ -397,8 +202,7 @@ impl File {
                 (&*std).seek(seek).and_then(|_| std.set_len(size))
             } else {
                 std.set_len(size)
-            }
-            .map(|()| 0); // the value is discarded later
+            }.map(|()| 0); // the value is discarded later
 
             // Return the result as a seek
             (Operation::Seek(res), buf)
@@ -420,20 +224,6 @@ impl File {
     }
 
     /// Queries metadata about the underlying file.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let file = File::open("foo.txt").await?;
-    /// let metadata = file.metadata().await?;
-    ///
-    /// println!("{:?}", metadata);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn metadata(&self) -> io::Result<Metadata> {
         let std = self.std.clone();
         asyncify(move || std.metadata()).await
@@ -461,45 +251,11 @@ impl File {
         Ok(File::from_std(std_file))
     }
 
-    /// Destructures `File` into a [`std::fs::File`]. This function is
-    /// async to allow any in-flight operations to complete.
-    ///
-    /// Use `File::try_into_std` to attempt conversion immediately.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let tokio_file = File::open("foo.txt").await?;
-    /// let std_file = tokio_file.into_std().await;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn into_std(mut self) -> StdFile {
         self.inner.get_mut().complete_inflight().await;
         Arc::try_unwrap(self.std).expect("Arc::try_unwrap failed")
     }
 
-    /// Tries to immediately destructure `File` into a [`std::fs::File`].
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error containing the file if some
-    /// operation is in-flight.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let tokio_file = File::open("foo.txt").await?;
-    /// let std_file = tokio_file.try_into_std().unwrap();
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn try_into_std(mut self) -> Result<StdFile, Self> {
         match Arc::try_unwrap(self.std) {
             Ok(file) => Ok(file),
@@ -510,35 +266,6 @@ impl File {
         }
     }
 
-    /// Changes the permissions on the underlying file.
-    ///
-    /// # Platform-specific behavior
-    ///
-    /// This function currently corresponds to the `fchmod` function on Unix and
-    /// the `SetFileInformationByHandle` function on Windows. Note that, this
-    /// [may change in the future][changes].
-    ///
-    /// [changes]: https://doc.rust-lang.org/std/io/index.html#platform-specific-behavior
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if the user lacks permission change
-    /// attributes on the underlying file. It may also return an error in other
-    /// os-specific unspecified cases.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::fs::File;
-    ///
-    /// # async fn dox() -> std::io::Result<()> {
-    /// let file = File::open("foo.txt").await?;
-    /// let mut perms = file.metadata().await?.permissions();
-    /// perms.set_readonly(true);
-    /// file.set_permissions(perms).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn set_permissions(&self, perm: Permissions) -> io::Result<()> {
         let std = self.std.clone();
         asyncify(move || std.set_permissions(perm)).await
@@ -574,11 +301,7 @@ impl File {
 }
 
 impl AsyncRead for File {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        dst: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, dst: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         ready!(crate::trace::trace_leaf(cx));
         let me = self.get_mut();
         let inner = me.inner.get_mut();
@@ -707,11 +430,7 @@ impl AsyncSeek for File {
 }
 
 impl AsyncWrite for File {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        src: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, src: &[u8]) -> Poll<io::Result<usize>> {
         ready!(crate::trace::trace_leaf(cx));
         let me = self.get_mut();
         let inner = me.inner.get_mut();
@@ -743,9 +462,9 @@ impl AsyncWrite for File {
 
                         (Operation::Write(res), buf)
                     })
-                    .ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::Other, "background task failed")
-                    })?;
+                        .ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::Other, "background task failed")
+                        })?;
 
                     inner.state = State::Busy(blocking_task_join_handle);
 
@@ -778,11 +497,7 @@ impl AsyncWrite for File {
         }
     }
 
-    fn poll_write_vectored(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> Poll<Result<usize, io::Error>> {
+    fn poll_write_vectored(self: Pin<&mut Self>, cx: &mut Context<'_>, bufs: &[io::IoSlice<'_>]) -> Poll<Result<usize, io::Error>> {
         ready!(crate::trace::trace_leaf(cx));
         let me = self.get_mut();
         let inner = me.inner.get_mut();
@@ -813,10 +528,7 @@ impl AsyncWrite for File {
                         };
 
                         (Operation::Write(res), buf)
-                    })
-                    .ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::Other, "background task failed")
-                    })?;
+                    }).ok_or_else(|| { io::Error::new(io::ErrorKind::Other, "background task failed") })?;
 
                     inner.state = State::Busy(blocking_task_join_handle);
 
@@ -833,14 +545,11 @@ impl AsyncWrite for File {
                             // the next iteration of the loop
                             continue;
                         }
-                        Operation::Write(res) => {
-                            // If the previous write was successful, continue.
-                            // Otherwise, error.
+                        Operation::Write(res) => { // If the previous write was successful, continue. Otherwise, error.
                             res?;
                             continue;
                         }
-                        Operation::Seek(_) => {
-                            // Ignore the seek
+                        Operation::Seek(_) => { // Ignore the seek
                             continue;
                         }
                     }
@@ -873,9 +582,7 @@ impl From<StdFile> for File {
 
 impl fmt::Debug for File {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("tokio::fs::File")
-            .field("std", &self.std)
-            .finish()
+        fmt.debug_struct("tokio::fs::File").field("std", &self.std).finish()
     }
 }
 

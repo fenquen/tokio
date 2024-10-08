@@ -44,19 +44,19 @@ unsafe fn clone(ptr: *const ()) -> RawWaker {
 }
 
 unsafe fn drop(ptr: *const ()) {
-    RawTask::fromHeaderPtr(NonNull::new_unchecked(ptr as *mut Header)).drop_reference();
+    RawTask::fromHeaderPtr(NonNull::new_unchecked(ptr as *mut Header)).dropRef();
 }
 
-unsafe fn wake_by_val(ptr: *const ()) {
-    RawTask::fromHeaderPtr(NonNull::new_unchecked(ptr as *mut Header)).wake_by_val();
+unsafe fn wakeByVal(ptr: *const ()) {
+    RawTask::fromHeaderPtr(NonNull::new_unchecked(ptr as *mut Header)).wakeByVal();
 }
 
 // Wake without consuming the waker
-unsafe fn wake_by_ref(ptr: *const ()) {
-    RawTask::fromHeaderPtr(NonNull::new_unchecked(ptr as *mut Header)).wake_by_ref();
+unsafe fn wakeByRef(ptr: *const ()) {
+    RawTask::fromHeaderPtr(NonNull::new_unchecked(ptr as *mut Header)).wakeByRef();
 }
 
-static WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake_by_val, wake_by_ref, drop);
+static WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wakeByVal, wakeByRef, drop);
 
 fn buildRawWaker(headerPtr: NonNull<Header>) -> RawWaker {
     RawWaker::new(headerPtr.as_ptr() as *const (), &WAKER_VTABLE)
