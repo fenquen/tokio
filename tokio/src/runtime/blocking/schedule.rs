@@ -57,7 +57,7 @@ impl task::Schedule for BlockingSchedule {
         None
     }
 
-    fn schedule(&self, _task: task::Notified<Self>) {
+    fn schedule(&self, _task: task::NotifiedTask<Self>) {
         unreachable!();
     }
 

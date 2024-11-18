@@ -17,7 +17,7 @@ unsafe impl Send for InjectSyncState {}
 unsafe impl Sync for InjectSyncState {}
 
 impl InjectSyncState {
-    pub(super) fn pop<T: 'static>(&mut self) -> Option<task::Notified<T>> {
+    pub(super) fn pop<T: 'static>(&mut self) -> Option<task::NotifiedTask<T>> {
         let rawTask = self.head?;
 
         self.head = unsafe { rawTask.get_queue_next() };
@@ -29,7 +29,7 @@ impl InjectSyncState {
         unsafe { rawTask.set_queue_next(None) };
 
         // safety: a `Notified` is pushed into the queue and now it is popped!
-        Some(unsafe { task::Notified::from_raw(rawTask) })
+        Some(unsafe { task::NotifiedTask::fromRaw(rawTask) })
     }
 
     pub(crate) fn is_empty(&self) -> bool {

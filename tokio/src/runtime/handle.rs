@@ -141,11 +141,7 @@ impl RuntimeHandle {
     /// });
     /// # }
     #[track_caller]
-    pub fn spawn_blocking<F, R>(&self, func: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
+    pub fn spawn_blocking<F: FnOnce() -> R + Send + 'static, R: Send + 'static>(&self, func: F) -> JoinHandle<R> {
         self.schedulerHandleEnum.getBlockingSpawner().spawnBlocking(self, func)
     }
 
@@ -221,7 +217,7 @@ impl RuntimeHandle {
     /// [`tokio::time`]: crate::time
     #[track_caller]
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        if cfg!(debug_assertions) && std::mem::size_of::<F>() > BOX_FUTURE_THRESHOLD {
+        if cfg!(debug_assertions) && size_of::<F>() > BOX_FUTURE_THRESHOLD {
             self.block_on_inner(Box::pin(future))
         } else {
             self.block_on_inner(future)
@@ -238,40 +234,15 @@ impl RuntimeHandle {
     }
 
     #[track_caller]
-    pub(crate) fn spawn_named<F>(&self, future: F, _name: Option<&str>) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.schedulerHandleEnum.spawn(future,  crate::runtime::task::Id::next())
+    pub(crate) fn spawn_named<F: Future<Output: Send + 'static> + Send + 'static>(&self, future: F, _name: Option<&str>) -> JoinHandle<F::Output> {
+        self.schedulerHandleEnum.spawn(future, crate::runtime::task::Id::next())
     }
 
-    /// Returns the flavor of the current `Runtime`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::{RuntimeHandle, RuntimeFlavor};
-    ///
-    /// #[tokio::main(flavor = "current_thread")]
-    /// async fn main() {
-    ///   assert_eq!(RuntimeFlavor::CurrentThread, RuntimeHandle::current().runtime_flavor());
-    /// }
-    /// ```
-    ///
-    /// ```
-    /// use tokio::runtime::{RuntimeHandle, RuntimeFlavor};
-    ///
-    /// #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
-    /// async fn main() {
-    ///   assert_eq!(RuntimeFlavor::MultiThread, RuntimeHandle::current().runtime_flavor());
-    /// }
-    /// ```
     pub fn runtime_flavor(&self) -> RuntimeFlavor {
         match self.schedulerHandleEnum {
-            scheduler::SchedulerHandleEnum::CurrentThread(_) => RuntimeFlavor::CurrentThread,
+            SchedulerHandleEnum::CurrentThread(_) => RuntimeFlavor::CurrentThread,
             #[cfg(feature = "rt-multi-thread")]
-            scheduler::SchedulerHandleEnum::MultiThread(_) => RuntimeFlavor::MultiThread,
+            SchedulerHandleEnum::MultiThread(_) => RuntimeFlavor::MultiThread,
         }
     }
 }
@@ -295,15 +266,13 @@ impl TryCurrentError {
         }
     }
 
-    /// Returns true if the call failed because there is currently no runtime in
-    /// the Tokio context.
+    /// Returns true if the call failed because there is currently no runtime in the Tokio context
     pub fn is_missing_context(&self) -> bool {
         matches!(self.kind, TryCurrentErrorKind::NoContext)
     }
 
     /// Returns true if the call failed because the Tokio context thread-local
-    /// had been destroyed. This can usually only happen if in the destructor of
-    /// other thread-locals.
+    /// had been destroyed. This can usually only happen if in the destructor of other thread-locals
     pub fn is_thread_local_destroyed(&self) -> bool {
         matches!(self.kind, TryCurrentErrorKind::ThreadLocalDestroyed)
     }

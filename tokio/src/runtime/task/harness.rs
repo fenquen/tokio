@@ -2,7 +2,7 @@ use crate::future::Future;
 use crate::runtime::task::core::{Cell, Core, Header, Trailer};
 use crate::runtime::task::state::{Snapshot, State};
 use crate::runtime::task::waker::buildWakerRef;
-use crate::runtime::task::{Id, JoinError, Notified, RawTask, Schedule, Task};
+use crate::runtime::task::{Id, JoinError, NotifiedTask, RawTask, Schedule, Task};
 
 use crate::runtime::TaskMeta;
 use std::any::Any;
@@ -142,7 +142,7 @@ impl<T: Future, S: Schedule> Harness<T, S> {
             PollFuture::Notified => { // 将已经wake的task变idle
                 // The `poll_inner` call has given us two ref-counts back.
                 // We give one of them to a new task and call `yield_now`.
-                self.core().scheduler.yield_now(Notified(self.get_new_task()));
+                self.core().scheduler.yield_now(NotifiedTask(self.get_new_task()));
 
                 // The remaining ref-count is now dropped. We kept the extra
                 // ref-count until now to ensure that even if the `yield_now`

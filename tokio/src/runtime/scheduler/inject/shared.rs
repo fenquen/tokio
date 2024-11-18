@@ -54,14 +54,14 @@ impl<T: 'static> Shared<T> {
     /// Pushes a value into the queue.
     ///
     /// Must be called with the same `Synced` instance returned by `Inject::new`
-    pub(crate) unsafe fn push(&self, synced: &mut InjectSyncState, task: task::Notified<T>) {
+    pub(crate) unsafe fn push(&self, synced: &mut InjectSyncState, task: task::NotifiedTask<T>) {
         if synced.is_closed {
             return;
         }
 
         // safety: only mutated with the lock held
         let len = self.len.unsync_load();
-        let task = task.into_raw();
+        let task = task.intoRaw();
 
         // The next pointer should already be null
         debug_assert!(unsafe { task.get_queue_next().is_none() });
@@ -79,7 +79,7 @@ impl<T: 'static> Shared<T> {
     }
 
     /// Must be called with the same `Synced` instance returned by `Inject::new`
-    pub(crate) unsafe fn pop(&self, injectSyncState: &mut InjectSyncState) -> Option<task::Notified<T>> {
+    pub(crate) unsafe fn pop(&self, injectSyncState: &mut InjectSyncState) -> Option<task::NotifiedTask<T>> {
         self.pop_n(injectSyncState, 1).next()
     }
 

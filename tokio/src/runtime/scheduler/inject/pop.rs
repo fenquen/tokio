@@ -21,7 +21,7 @@ impl<'a, T: 'static> Pop<'a, T> {
 }
 
 impl<'a, T: 'static> Iterator for Pop<'a, T> {
-    type Item = task::Notified<T>;
+    type Item = task::NotifiedTask<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.len == 0 {

@@ -54,7 +54,7 @@ pub(crate) struct Inner<T: 'static> {
     tail: AtomicUnsignedShort,
 
     /// Elements
-    buffer: Box<[UnsafeCell<MaybeUninit<task::Notified<T>>>; LOCAL_QUEUE_CAPACITY]>,
+    buffer: Box<[UnsafeCell<MaybeUninit<task::NotifiedTask<T>>>; LOCAL_QUEUE_CAPACITY]>,
 }
 
 unsafe impl<T> Send for Inner<T> {}
@@ -127,7 +127,7 @@ impl<T> Local<T> {
     /// # Panics
     ///
     /// The method panics if there is not enough capacity to fit in the queue.
-    pub(crate) fn push_back(&mut self, tasks: impl ExactSizeIterator<Item=task::Notified<T>>) {
+    pub(crate) fn push_back(&mut self, tasks: impl ExactSizeIterator<Item=task::NotifiedTask<T>>) {
         let len = tasks.len();
         assert!(len <= LOCAL_QUEUE_CAPACITY);
 
@@ -176,7 +176,7 @@ impl<T> Local<T> {
     /// When the queue overflows, half of the current contents of the queue is
     /// moved to the given Injection queue. This frees up capacity for more
     /// tasks to be pushed into the local queue.
-    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(&mut self, mut task: task::Notified<T>, overflow: &O) {
+    pub(crate) fn push_back_or_overflow<O: Overflow<T>>(&mut self, mut task: task::NotifiedTask<T>, overflow: &O) {
         let tail = loop {
             let head = self.inner.head.load(Acquire);
             let (steal, real) = unpack(head);
@@ -231,11 +231,11 @@ impl<T> Local<T> {
     #[inline(never)]
     fn push_overflow<O: Overflow<T>>(
         &mut self,
-        task: task::Notified<T>,
+        task: task::NotifiedTask<T>,
         head: UnsignedShort,
         tail: UnsignedShort,
         overflow: &O,
-    ) -> Result<(), task::Notified<T>> {
+    ) -> Result<(), task::NotifiedTask<T>> {
         /// How many elements are we taking from the local queue.
         ///
         /// This is one less than the number of tasks pushed to the inject
@@ -275,16 +275,16 @@ impl<T> Local<T> {
 
         /// An iterator that takes elements out of the run queue.
         struct BatchTaskIter<'a, T: 'static> {
-            buffer: &'a [UnsafeCell<MaybeUninit<task::Notified<T>>>; LOCAL_QUEUE_CAPACITY],
+            buffer: &'a [UnsafeCell<MaybeUninit<task::NotifiedTask<T>>>; LOCAL_QUEUE_CAPACITY],
             head: UnsignedLong,
             i: UnsignedLong,
         }
 
         impl<'a, T: 'static> Iterator for BatchTaskIter<'a, T> {
-            type Item = task::Notified<T>;
+            type Item = task::NotifiedTask<T>;
 
             #[inline]
-            fn next(&mut self) -> Option<task::Notified<T>> {
+            fn next(&mut self) -> Option<task::NotifiedTask<T>> {
                 if self.i == UnsignedLong::from(NUM_TASKS_TAKEN) {
                     None
                 } else {
@@ -314,7 +314,7 @@ impl<T> Local<T> {
     }
 
     /// Pops a task from the local queue.
-    pub(crate) fn pop(&mut self) -> Option<task::Notified<T>> {
+    pub(crate) fn pop(&mut self) -> Option<task::NotifiedTask<T>> {
         let mut head = self.inner.head.load(Acquire);
 
         let idx = loop {
@@ -358,7 +358,7 @@ impl<T> Steal<T> {
     }
 
     /// Steals half the tasks from self and place them into `dst`.
-    pub(crate) fn steal_into(&self, destRunQueue: &mut Local<T>) -> Option<task::Notified<T>> {
+    pub(crate) fn steal_into(&self, destRunQueue: &mut Local<T>) -> Option<task::NotifiedTask<T>> {
         // Safety: the caller is the only thread that mutates `dst.tail` and holds a mutable reference.
         let destTail = unsafe { destRunQueue.inner.tail.unsync_load() };
 

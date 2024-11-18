@@ -12,10 +12,10 @@
     unreachable_pub
 )]
 #![deny(unused_must_use)]
-#![doc(test(
-    no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_variables))
-))]
+#![doc(test(no_crate_inject, attr(deny(warnings, rust_2018_idioms), allow(
+    dead_code,
+    unused_variables
+))))]
 #![allow(non_snake_case, unused_variables)]
 
 
@@ -42,12 +42,7 @@ cfg_process! {
     pub mod process;
 }
 
-#[cfg(any(
-    feature = "fs",
-    feature = "io-std",
-    feature = "net",
-    all(windows, feature = "process"),
-))]
+#[cfg(any(feature = "fs", feature = "io-std", feature = "net", all(windows, feature = "process")))]
 mod blocking;
 
 cfg_rt! {

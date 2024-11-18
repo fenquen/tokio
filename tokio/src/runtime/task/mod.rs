@@ -223,12 +223,12 @@ unsafe impl<S> Sync for Task<S> {}
 
 /// A task was notified.
 #[repr(transparent)]
-pub(crate) struct Notified<S: 'static>(Task<S>);
+pub(crate) struct NotifiedTask<S: 'static>(Task<S>);
 
 // safety: This type cannot be used to touch the task without first verifying
 // that the value is on a thread where it is safe to poll the task.
-unsafe impl<S: Schedule> Send for Notified<S> {}
-unsafe impl<S: Schedule> Sync for Notified<S> {}
+unsafe impl<S: Schedule> Send for NotifiedTask<S> {}
+unsafe impl<S: Schedule> Sync for NotifiedTask<S> {}
 
 /// A non-Send variant of Notified with the invariant that it is on a thread
 /// where it is safe to poll it.
@@ -275,12 +275,12 @@ pub(crate) trait Schedule: Sync + Sized + 'static {
     fn release(&self, task: &Task<Self>) -> Option<Task<Self>>;
 
     /// Schedule the task
-    fn schedule(&self, task: Notified<Self>);
+    fn schedule(&self, task: NotifiedTask<Self>);
 
     fn hooks(&self) -> TaskHarnessScheduleHooks;
 
     /// Schedule the task to run in the near future, yielding the thread to other tasks.
-    fn yield_now(&self, task: Notified<Self>) {
+    fn yield_now(&self, task: NotifiedTask<Self>) {
         self.schedule(task);
     }
 
@@ -316,7 +316,7 @@ pub(crate) fn unowned<T: Future<Output: Send + 'static> + Send + 'static, S: Sch
 /// The first task reference is usually put into an `OwnedTasks` immediately.
 /// The Notified is sent to the scheduler as an ordinary notification.
 #[cfg(feature = "rt")]
-fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T, scheduler: S, taskId: Id) -> (Task<S>, Notified<S>, JoinHandle<T::Output>) {
+fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T, scheduler: S, taskId: Id) -> (Task<S>, NotifiedTask<S>, JoinHandle<T::Output>) {
     let rawTask = RawTask::new::<T, S>(future, scheduler, taskId);
 
     let task = Task {
@@ -324,7 +324,7 @@ fn newTask<T: Future<Output: 'static> + 'static, S: Schedule>(future: T, schedul
         _p: PhantomData,
     };
 
-    let notified = Notified(Task {
+    let notified = NotifiedTask(Task {
         rawTask,
         _p: PhantomData,
     });
@@ -356,16 +356,16 @@ impl<S: 'static> Task<S> {
     }
 }
 
-impl<S: 'static> Notified<S> {
+impl<S: 'static> NotifiedTask<S> {
     fn header(&self) -> &Header {
         self.0.header()
     }
 
-    pub(crate) unsafe fn from_raw(rawTask: RawTask) -> Notified<S> {
-        Notified(Task::new(rawTask))
+    pub(crate) unsafe fn fromRaw(rawTask: RawTask) -> NotifiedTask<S> {
+        NotifiedTask(Task::new(rawTask))
     }
 
-    pub(crate) fn into_raw(self) -> RawTask {
+    pub(crate) fn intoRaw(self) -> RawTask {
         let raw = self.0.rawTask;
         mem::forget(self);
         raw
@@ -445,7 +445,7 @@ impl<S> fmt::Debug for Task<S> {
     }
 }
 
-impl<S> fmt::Debug for Notified<S> {
+impl<S> fmt::Debug for NotifiedTask<S> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "task::Notified({:p})", self.0.header())
     }

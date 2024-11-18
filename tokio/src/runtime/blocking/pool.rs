@@ -121,8 +121,7 @@ impl Spawner {
         // No threads are able to process the task.
         if self.spawnInner.metrics.num_idle_threads() == 0 {
             // At max number of threads
-            if self.spawnInner.metrics.num_threads() == self.spawnInner.thread_cap {
-            } else {
+            if self.spawnInner.metrics.num_threads() == self.spawnInner.thread_cap {} else {
                 assert!(shared.shutdown_tx.is_some());
 
                 let shutdown_tx = shared.shutdown_tx.clone();
@@ -327,27 +326,19 @@ const KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// in case of runtime shutdown.
 #[track_caller]
 #[cfg_attr(target_os = "wasi", allow(dead_code))]
-pub(crate) fn spawn_blocking<F, R>(func: F) -> JoinHandle<R>
-where
-    F: FnOnce() -> R + Send + 'static,
-    R: Send + 'static,
-{
+pub(crate) fn spawn_blocking<F: FnOnce() -> R + Send + 'static, R: Send + 'static>(func: F) -> JoinHandle<R> {
     RuntimeHandle::current().spawn_blocking(func)
 }
 
-cfg_fs! {
-    /// Runs the provided function on an executor dedicated to blocking
-    /// operations. Tasks will be scheduled as mandatory, meaning they are
-    /// guaranteed to run unless a shutdown is already taking place. In case a
-    /// shutdown is already taking place, `None` will be returned.
-    pub(crate) fn spawn_mandatory_blocking<F, R>(func: F) -> Option<JoinHandle<R>>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let rt = RuntimeHandle::current();
-        rt.schedulerHandleEnum.getBlockingSpawner().spawn_mandatory_blocking(&rt, func)
-    }
+/// Runs the provided function on an executor dedicated to blocking
+/// operations. Tasks will be scheduled as mandatory, meaning they are
+/// guaranteed to run unless a shutdown is already taking place. In case a
+/// shutdown is already taking place, `None` will be returned.
+#[cfg(feature = "fs")]
+#[cfg(not(target_os = "wasi"))]
+pub(crate) fn spawn_mandatory_blocking<F: FnOnce() -> R + Send + 'static, R: Send + 'static>(func: F) -> Option<JoinHandle<R>> {
+    let rt = RuntimeHandle::current();
+    rt.schedulerHandleEnum.getBlockingSpawner().spawn_mandatory_blocking(&rt, func)
 }
 
 impl BlockingPool {
@@ -389,8 +380,8 @@ impl BlockingPool {
         let mut shared = self.spawner.spawnInner.shared.lock();
 
         // The function can be called multiple times. First, by explicitly
-        // calling `shutdown` then by the drop handler calling `shutdown`. This
-        // prevents shutting down twice.
+        // calling `shutdown` then by the drop handler calling `shutdown`.
+        // This prevent shutting down twice.
         if shared.shutdown {
             return;
         }

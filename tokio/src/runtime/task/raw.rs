@@ -244,10 +244,10 @@ unsafe fn poll<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {
 }
 
 unsafe fn schedule<S: Schedule>(headerPtr: NonNull<Header>) {
-    use crate::runtime::task::{Notified, Task};
+    use crate::runtime::task::{NotifiedTask, Task};
 
     let scheduler = Header::get_scheduler::<S>(headerPtr);
-    scheduler.as_ref().schedule(Notified(Task::from_raw(headerPtr.cast())));
+    scheduler.as_ref().schedule(NotifiedTask(Task::from_raw(headerPtr.cast())));
 }
 
 unsafe fn dealloc<T: Future, S: Schedule>(headerPtr: NonNull<Header>) {

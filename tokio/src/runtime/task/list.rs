@@ -8,7 +8,7 @@
 
 use crate::future::Future;
 use crate::loom::cell::UnsafeCell;
-use crate::runtime::task::{JoinHandle, LocalNotified, Notified, Schedule, Task};
+use crate::runtime::task::{JoinHandle, LocalNotified, NotifiedTask, Schedule, Task};
 use crate::util::linked_list::{Link, LinkedList};
 use crate::util::sharded_list;
 
@@ -79,14 +79,14 @@ impl<S: Schedule + 'static> OwnedTasks<S> {
     pub(crate) fn bind<T: Future<Output: Send + 'static> + Send + 'static>(&self,
                                                                            future: T,
                                                                            scheduler: S,
-                                                                           id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>) {
+                                                                           id: super::Id) -> (JoinHandle<T::Output>, Option<NotifiedTask<S>>) {
         let (task, notified, join) = super::newTask(future, scheduler, id);
         let notified = unsafe { self.bind_inner(task, notified) };
         (join, notified)
     }
 
     /// The part of `bind` that's the same for every type of future.
-    unsafe fn bind_inner(&self, task: Task<S>, notified: Notified<S>) -> Option<Notified<S>> {
+    unsafe fn bind_inner(&self, task: Task<S>, notified: NotifiedTask<S>) -> Option<NotifiedTask<S>> {
         unsafe {
             // safety: We just created the task, so we have exclusive access to the field.
             task.header().set_owner_id(self.id);
@@ -141,7 +141,7 @@ impl<S: 'static> OwnedTasks<S> {
     /// Asserts that the given task is owned by this `OwnedTasks` and convert it to
     /// a `LocalNotified`, giving the thread permission to poll this task.
     #[inline]
-    pub(crate) fn assert_owner(&self, notified: Notified<S>) -> LocalNotified<S> {
+    pub(crate) fn assert_owner(&self, notified: NotifiedTask<S>) -> LocalNotified<S> {
         debug_assert_eq!(notified.header().get_owner_id(), Some(self.id));
 
         // safety: All tasks bound to this OwnedTasks are Send, so it is safe
@@ -212,7 +212,7 @@ impl<S: 'static> LocalOwnedTasks<S> {
         }
     }
 
-    pub(crate) fn bind<T>(&self, task: T, scheduler: S, id: super::Id) -> (JoinHandle<T::Output>, Option<Notified<S>>)
+    pub(crate) fn bind<T>(&self, task: T, scheduler: S, id: super::Id) -> (JoinHandle<T::Output>, Option<NotifiedTask<S>>)
     where
         S: Schedule,
         T: Future + 'static,
@@ -267,7 +267,7 @@ impl<S: 'static> LocalOwnedTasks<S> {
     /// Asserts that the given task is owned by this `LocalOwnedTasks` and convert
     /// it to a `LocalNotified`, giving the thread permission to poll this task.
     #[inline]
-    pub(crate) fn assert_owner(&self, task: Notified<S>) -> LocalNotified<S> {
+    pub(crate) fn assert_owner(&self, task: NotifiedTask<S>) -> LocalNotified<S> {
         assert_eq!(task.header().get_owner_id(), Some(self.id));
 
         // safety: The task was bound to this LocalOwnedTasks, and the

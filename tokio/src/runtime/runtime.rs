@@ -12,83 +12,7 @@ cfg_rt_multi_thread! {
     use crate::runtime::scheduler::MultiThread;
 }
 
-/// The Tokio runtime.
-///
-/// The runtime provides an I/O driver, task scheduler, [timer], and
-/// blocking pool, necessary for running asynchronous tasks.
-///
-/// Instances of `Runtime` can be created using [`new`], or [`Builder`].
-/// However, most users will use the [`#[tokio::main]`][main] annotation on
-/// their entry point instead.
-///
-/// See [module level][mod] documentation for more details.
-///
-/// # Shutdown
-///
-/// Shutting down the runtime is done by dropping the value, or calling
-/// [`shutdown_background`] or [`shutdown_timeout`].
-///
-/// Tasks spawned through [`Runtime::spawn`] keep running until they yield.
-/// Then they are dropped. They are not *guaranteed* to run to completion, but
-/// *might* do so if they do not yield until completion.
-///
-/// Blocking functions spawned through [`Runtime::spawn_blocking`] keep running
-/// until they return.
-///
-/// The thread initiating the shutdown blocks until all spawned work has been
-/// stopped. This can take an indefinite amount of time. The `Drop`
-/// implementation waits forever for this.
-///
-/// The [`shutdown_background`] and [`shutdown_timeout`] methods can be used if
-/// waiting forever is undesired. When the timeout is reached, spawned work that
-/// did not stop in time and threads running it are leaked. The work continues
-/// to run until one of the stopping conditions is fulfilled, but the thread
-/// initiating the shutdown is unblocked.
-///
-/// Once the runtime has been dropped, any outstanding I/O resources bound to
-/// it will no longer function. Calling any method on them will result in an
-/// error.
-///
-/// # Sharing
-///
-/// There are several ways to establish shared access to a Tokio runtime:
-///
-///  * Using an <code>[Arc]\<Runtime></code>.
-///  * Using a [`Handle`].
-///  * Entering the runtime context.
-///
-/// Using an <code>[Arc]\<Runtime></code> or [`Handle`] allows you to do various
-/// things with the runtime such as spawning new tasks or entering the runtime
-/// context. Both types can be cloned to create a new handle that allows access
-/// to the same runtime. By passing clones into different tasks or threads, you
-/// will be able to access the runtime from those tasks or threads.
-///
-/// The difference between <code>[Arc]\<Runtime></code> and [`Handle`] is that
-/// an <code>[Arc]\<Runtime></code> will prevent the runtime from shutting down,
-/// whereas a [`Handle`] does not prevent that. This is because shutdown of the
-/// runtime happens when the destructor of the `Runtime` object runs.
-///
-/// Calls to [`shutdown_background`] and [`shutdown_timeout`] require exclusive
-/// ownership of the `Runtime` type. When using an <code>[Arc]\<Runtime></code>,
-/// this can be achieved via [`Arc::try_unwrap`] when only one strong count
-/// reference is left over.
-///
-/// The runtime context is entered using the [`Runtime::enter`] or
-/// [`RuntimeHandle::enter`] methods, which use a thread-local variable to store the
-/// current runtime. Whenever you are inside the runtime context, methods such
-/// as [`tokio::spawn`] will use the runtime whose context you are inside.
-///
-/// [timer]: crate::time
-/// [mod]: index.html
-/// [`new`]: method@Self::new
-/// [`Builder`]: struct@Builder
-/// [`Handle`]: struct@RuntimeHandle
-/// [main]: macro@crate::main
-/// [`tokio::spawn`]: crate::spawn
-/// [`Arc::try_unwrap`]: std::sync::Arc::try_unwrap
-/// [Arc]: std::sync::Arc
-/// [`shutdown_background`]: method@Runtime::shutdown_background
-/// [`shutdown_timeout`]: method@Runtime::shutdown_timeout
+/// The Tokio runtime
 #[derive(Debug)]
 pub struct Runtime {
     /// Task scheduler
@@ -102,8 +26,6 @@ pub struct Runtime {
 }
 
 /// The flavor of a `Runtime`.
-///
-/// This is the return type for [`Handle::runtime_flavor`](crate::runtime::RuntimeHandle::runtime_flavor()).
 #[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RuntimeFlavor {
@@ -168,57 +90,7 @@ impl Runtime {
         self.runtimeHandle.spawn_blocking(func)
     }
 
-    /// Runs a future to completion on the Tokio runtime. This is the
-    /// runtime's entry point.
-    ///
-    /// This runs the given future on the current thread, blocking until it is
-    /// complete, and yielding its resolved result. Any tasks or timers
-    /// which the future spawns internally will be executed on the runtime.
-    ///
-    /// # Non-worker future
-    ///
-    /// Note that the future required by this function does not run as a
-    /// worker. The expectation is that other tasks are spawned by the future here.
-    /// Awaiting on other futures from the future provided here will not
-    /// perform as fast as those spawned as workers.
-    ///
-    /// # Multi thread scheduler
-    ///
-    /// When the multi thread scheduler is used this will allow futures
-    /// to run within the io driver and timer context of the overall runtime.
-    ///
-    /// Any spawned tasks will continue running after `block_on` returns.
-    ///
-    /// # Current thread scheduler
-    ///
-    /// When the current thread scheduler is enabled `block_on`
-    /// can be called concurrently from multiple threads. The first call
-    /// will take ownership of the io and timer drivers. This means
-    /// other threads which do not own the drivers will hook into that one.
-    /// When the first `block_on` completes, other threads will be able to
-    /// "steal" the driver to allow continued execution of their futures.
-    ///
-    /// Any spawned tasks will be suspended after `block_on` returns. Calling
-    /// `block_on` again will resume previously spawned tasks.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the provided future panics, or if called within an
-    /// asynchronous execution context.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use tokio::runtime::Runtime;
-    ///
-    /// // Create the runtime
-    /// let rt  = Runtime::new().unwrap();
-    ///
-    /// // Execute the future, blocking the current thread until completion
-    /// rt.block_on(async {
-    ///     println!("hello");
-    /// });
-    /// ```
+    /// Runs a future to completion on the Tokio runtime. This is the runtime's entry point.
     ///
     /// [handle]: fn@RuntimeHandle::block_on
     #[track_caller]
@@ -281,32 +153,7 @@ impl Runtime {
         self.runtimeHandle.enter()
     }
 
-    /// Shuts down the runtime, waiting for at most `duration` for all spawned
-    /// work to stop.
-    ///
-    /// See the [struct level documentation](Runtime#shutdown) for more details.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::runtime::Runtime;
-    /// use tokio::task;
-    ///
-    /// use std::thread;
-    /// use std::time::Duration;
-    ///
-    /// fn main() {
-    ///    let runtime = Runtime::new().unwrap();
-    ///
-    ///    runtime.block_on(async move {
-    ///        task::spawn_blocking(move || {
-    ///            thread::sleep(Duration::from_secs(10_000));
-    ///        });
-    ///    });
-    ///
-    ///    runtime.shutdown_timeout(Duration::from_millis(100));
-    /// }
-    /// ```
+    /// Shuts down the runtime, waiting for at most `duration` for all spawned work to stop
     pub fn shutdown_timeout(mut self, duration: Duration) {
         // Wakeup and shutdown all the worker threads
         self.runtimeHandle.schedulerHandleEnum.shutdown();
@@ -346,7 +193,7 @@ impl Runtime {
     }
 }
 
-#[allow(clippy::single_match)] // there are comments in the error branch, so we don't want if-let
+#[allow(clippy::single_match)]
 impl Drop for Runtime {
     fn drop(&mut self) {
         match &mut self.schedulerEnum {

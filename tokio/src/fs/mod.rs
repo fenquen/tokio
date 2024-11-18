@@ -291,9 +291,6 @@ use crate::blocking::spawn_blocking;
 pub(crate) async fn asyncify<F: FnOnce() -> io::Result<T> + Send + 'static, T: Send + 'static>(f: F) -> io::Result<T> {
     match spawn_blocking(f).await {
         Ok(res) => res,
-        Err(_) => Err(io::Error::new(
-            io::ErrorKind::Other,
-            "background task failed",
-        )),
+        Err(_) => Err(io::Error::new(io::ErrorKind::Other, "background task failed")),
     }
 }

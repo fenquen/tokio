@@ -8,13 +8,13 @@ use std::time::Duration;
 
 #[derive(Debug)]
 pub(crate) struct ParkThread {
-    inner: Arc<Inner>,
+    parkUnparkThreadInner: Arc<ParkUnparkThreadInner>,
 }
 
 impl ParkThread {
     pub(crate) fn new() -> Self {
         Self {
-            inner: Arc::new(Inner {
+            parkUnparkThreadInner: Arc::new(ParkUnparkThreadInner {
                 state: AtomicUsize::new(EMPTY),
                 mutex: Mutex::new(()),
                 condvar: Condvar::new(),
@@ -22,23 +22,22 @@ impl ParkThread {
         }
     }
 
-    pub(crate) fn unpark(&self) -> UnparkThread {
-        let inner = self.inner.clone();
-        UnparkThread { inner }
+    pub(crate) fn getUnparkThread(&self) -> UnparkThread {
+        UnparkThread { parkUnparkThreadInner: self.parkUnparkThreadInner.clone() }
     }
 
     pub(crate) fn park(&mut self) {
-        self.inner.park();
+        self.parkUnparkThreadInner.park();
     }
 
     pub(crate) fn park_timeout(&mut self, duration: Duration) {
         // wasm doesn't have threads, so just sleep.
         #[cfg(not(target_family = "wasm"))]
-        self.inner.park_timeout(duration);
+        self.parkUnparkThreadInner.park_timeout(duration);
     }
 
     pub(crate) fn shutdown(&mut self) {
-        self.inner.shutdown();
+        self.parkUnparkThreadInner.shutdown();
     }
 }
 
@@ -51,24 +50,24 @@ impl Default for ParkThread {
 /// Unblocks a thread that was blocked by `ParkThread`.
 #[derive(Clone, Debug)]
 pub(crate) struct UnparkThread {
-    inner: Arc<Inner>,
+    parkUnparkThreadInner: Arc<ParkUnparkThreadInner>,
 }
 
 impl UnparkThread {
     pub(crate) fn unpark(&self) {
-        self.inner.unpark();
+        self.parkUnparkThreadInner.unpark();
     }
 
     pub(crate) fn into_waker(self) -> Waker {
         unsafe {
-            let rawWaker = unparker_to_raw_waker(self.inner);
+            let rawWaker = unparker_to_raw_waker(self.parkUnparkThreadInner);
             Waker::from_raw(rawWaker)
         }
     }
 }
 
 #[derive(Debug)]
-struct Inner {
+struct ParkUnparkThreadInner {
     state: AtomicUsize,
     mutex: Mutex<()>,
     condvar: Condvar,
@@ -82,10 +81,9 @@ tokio_thread_local! {
     static CURRENT_PARKER: ParkThread = ParkThread::new();
 }
 
-impl Inner {
+impl ParkUnparkThreadInner {
     fn park(&self) {
-        // If we were previously notified then we consume this notification and
-        // return quickly.
+        // If we were previously notified then we consume this notification and return quickly
         if self.state.compare_exchange(NOTIFIED, EMPTY, SeqCst, SeqCst).is_ok() {
             return;
         }
@@ -223,15 +221,15 @@ impl CachedParkThread {
     }
 
     fn unpark(&self) -> Result<UnparkThread, AccessError> {
-        self.with_current(ParkThread::unpark)
+        self.with_current(ParkThread::getUnparkThread)
     }
 
     pub(crate) fn park(&mut self) {
-        self.with_current(|park_thread| park_thread.inner.park()).unwrap();
+        self.with_current(|park_thread| park_thread.parkUnparkThreadInner.park()).unwrap();
     }
 
     pub(crate) fn park_timeout(&mut self, duration: Duration) {
-        self.with_current(|park_thread| park_thread.inner.park_timeout(duration)).unwrap();
+        self.with_current(|park_thread| park_thread.parkUnparkThreadInner.park_timeout(duration)).unwrap();
     }
 
     /// Gets a reference to the `ParkThread` handle for this thread.
@@ -258,41 +256,29 @@ impl CachedParkThread {
     }
 }
 
-impl Inner {
-    #[allow(clippy::wrong_self_convention)]
-    fn into_raw(this: Arc<Inner>) -> *const () {
-        Arc::into_raw(this) as *const ()
-    }
-
-    unsafe fn from_raw(ptr: *const ()) -> Arc<Inner> {
-        Arc::from_raw(ptr as *const Inner)
-    }
-}
-
-unsafe fn unparker_to_raw_waker(unparker: Arc<Inner>) -> RawWaker {
+unsafe fn unparker_to_raw_waker(unparker: Arc<ParkUnparkThreadInner>) -> RawWaker {
     RawWaker::new(
-        Inner::into_raw(unparker),
+        Arc::into_raw(unparker) as *const (),
         &RawWakerVTable::new(clone, wake, wake_by_ref, drop_waker),
     )
 }
 
 unsafe fn clone(raw: *const ()) -> RawWaker {
-    Arc::increment_strong_count(raw as *const Inner);
-    unparker_to_raw_waker(Inner::from_raw(raw))
-}
-
-unsafe fn drop_waker(raw: *const ()) {
-    drop(Inner::from_raw(raw));
+    Arc::increment_strong_count(raw as *const ParkUnparkThreadInner);
+    unparker_to_raw_waker(Arc::from_raw(raw as *const ParkUnparkThreadInner))
 }
 
 unsafe fn wake(raw: *const ()) {
-    let unparker = Inner::from_raw(raw);
-    unparker.unpark();
+    Arc::from_raw(raw as *const ParkUnparkThreadInner).unpark();
 }
 
 unsafe fn wake_by_ref(raw: *const ()) {
-    let raw = raw as *const Inner;
+    let raw = raw as *const ParkUnparkThreadInner;
     (*raw).unpark();
+}
+
+unsafe fn drop_waker(raw: *const ()) {
+    drop(Arc::from_raw(raw as *const ParkUnparkThreadInner));
 }
 
 #[cfg(loom)]

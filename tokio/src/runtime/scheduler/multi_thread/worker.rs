@@ -94,7 +94,7 @@ struct Core {
     /// The worker will check this slot for a task **before** checking the run queue.
     /// This effectively results in the **last** scheduled task to be run next (LIFO).
     /// This is an optimization for improving locality which benefits message passing patterns and helps to reduce latency.
-    lifoSlot: Option<Notified>,
+    lifoSlot: Option<NotifiedTask>,
 
     /// When `true`, locally scheduled tasks go to the LIFO slot. When `false`,
     /// they go to the back of the `run_queue`.
@@ -198,11 +198,11 @@ impl Launcher {
 type RunResult = Result<Box<Core>, ()>;
 
 /// A notified task handle
-type Notified = task::Notified<Arc<MultiThreadSchedulerHandle>>;
+type NotifiedTask = task::NotifiedTask<Arc<MultiThreadSchedulerHandle>>;
 
 /// Value picked out of thin-air. Running the LIFO slot a handful of times
 /// seems sufficient to benefit from locality. More than 3 times probably is
-/// overweighing. The value can be tuned in the future with data that shows
+/// over weighing. The value can be tuned in the future with data that shows
 /// improvements.
 const MAX_LIFO_POLLS_PER_TICK: usize = 3;
 
@@ -495,7 +495,7 @@ impl MultiThreadThreadLocalContext {
         Err(())
     }
 
-    fn run_task(&self, task: Notified, mut core: Box<Core>) -> RunResult {
+    fn run_task(&self, task: NotifiedTask, mut core: Box<Core>) -> RunResult {
         let localNotified = self.worker.multiThreadSchedulerHandle.workerSharedState.ownedTasks.assert_owner(task);
 
         // make sure the worker is not in the **searching** state. This enables another idle worker to try to steal work.
@@ -680,7 +680,7 @@ impl Core {
     }
 
     /// Return the next notified task available to this worker.
-    fn next_task(&mut self, worker: &Worker) -> Option<Notified> {
+    fn next_task(&mut self, worker: &Worker) -> Option<NotifiedTask> {
         if self.tick % self.checkGlobalQueueInterval == 0 {
             // Update the global queue interval, if needed
             self.tune_global_queue_interval(worker);
@@ -730,7 +730,7 @@ impl Core {
         }
     }
 
-    fn next_local_task(&mut self) -> Option<Notified> {
+    fn next_local_task(&mut self) -> Option<NotifiedTask> {
         self.lifoSlot.take().or_else(|| self.runQueue.pop())
     }
 
@@ -739,7 +739,7 @@ impl Core {
     /// Note: Only if less than half the workers are searching for tasks to steal
     /// a new worker will actually try to steal. The idea is to make sure not all
     /// workers will be trying to steal at the same time.
-    fn steal_work(&mut self, worker: &Worker) -> Option<Notified> {
+    fn steal_work(&mut self, worker: &Worker) -> Option<NotifiedTask> {
         if !self.transition_to_searching(worker) {
             return None;
         }
@@ -892,7 +892,7 @@ impl task::Schedule for Arc<MultiThreadSchedulerHandle> {
         self.workerSharedState.ownedTasks.remove(task)
     }
 
-    fn schedule(&self, task: Notified) {
+    fn schedule(&self, task: NotifiedTask) {
         self.scheduleTask(task, false);
     }
 
@@ -902,13 +902,13 @@ impl task::Schedule for Arc<MultiThreadSchedulerHandle> {
         }
     }
 
-    fn yield_now(&self, task: Notified) {
+    fn yield_now(&self, task: NotifiedTask) {
         self.scheduleTask(task, true);
     }
 }
 
 impl MultiThreadSchedulerHandle {
-    pub(super) fn scheduleTask(&self, task: Notified, is_yield: bool) {
+    pub(super) fn scheduleTask(&self, task: NotifiedTask, is_yield: bool) {
         with_current(|multiThreadThreadLocalContext| {
             if let Some(multiThreadThreadLocalContext) = multiThreadThreadLocalContext {
                 // the task is part of the **current** scheduler
@@ -927,7 +927,7 @@ impl MultiThreadSchedulerHandle {
         });
     }
 
-    fn scheduleLocal(&self, core: &mut Core, task: Notified, is_yield: bool) {
+    fn scheduleLocal(&self, core: &mut Core, task: NotifiedTask, is_yield: bool) {
         // Spawning from the worker thread. If scheduling a "yield" then the
         // task must always be pushed to the back of the queue, enabling other
         // tasks to be executed. If **not** a yield, then there is more
@@ -958,7 +958,7 @@ impl MultiThreadSchedulerHandle {
         }
     }
 
-    fn next_remote_task(&self) -> Option<Notified> {
+    fn next_remote_task(&self) -> Option<NotifiedTask> {
         if self.workerSharedState.injectShared.is_empty() {
             return None;
         }
@@ -969,7 +969,7 @@ impl MultiThreadSchedulerHandle {
         unsafe { self.workerSharedState.injectShared.pop(&mut synced.injectSyncState) }
     }
 
-    fn push_remote_task(&self, task: Notified) {
+    fn push_remote_task(&self, task: NotifiedTask) {
         let mut synced = self.workerSharedState.synced.lock();
         // safety: passing in correct `idle::Synced`
         unsafe {
@@ -1043,13 +1043,13 @@ impl MultiThreadSchedulerHandle {
 }
 
 impl Overflow<Arc<MultiThreadSchedulerHandle>> for MultiThreadSchedulerHandle {
-    fn push(&self, task: task::Notified<Arc<MultiThreadSchedulerHandle>>) {
+    fn push(&self, task: task::NotifiedTask<Arc<MultiThreadSchedulerHandle>>) {
         self.push_remote_task(task);
     }
 
     fn push_batch<I>(&self, iter: I)
     where
-        I: Iterator<Item=task::Notified<Arc<MultiThreadSchedulerHandle>>>,
+        I: Iterator<Item=task::NotifiedTask<Arc<MultiThreadSchedulerHandle>>>,
     {
         unsafe {
             self.workerSharedState.injectShared.push_batch(self, iter);

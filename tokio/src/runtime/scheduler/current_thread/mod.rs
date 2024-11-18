@@ -100,7 +100,7 @@ pub(crate) struct Context {
     pub(crate) defer: Defer,
 }
 
-type Notified = task::Notified<Arc<CurrentThreadSchedulerHandle>>;
+type Notified = task::NotifiedTask<Arc<CurrentThreadSchedulerHandle>>;
 
 /// Initial queue capacity.
 const INITIAL_CAPACITY: usize = 64;
@@ -432,7 +432,7 @@ impl Schedule for Arc<CurrentThreadSchedulerHandle> {
         self.shared.owned.remove(task)
     }
 
-    fn schedule(&self, task: task::Notified<Self>) {
+    fn schedule(&self, task: task::NotifiedTask<Self>) {
         use scheduler::ThreadLocalContextEnum::CurrentThread;
 
         context::withThreadLocalContextEnum(|maybe_cx| match maybe_cx {

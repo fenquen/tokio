@@ -50,10 +50,7 @@ impl BlockingRegionGuard {
 
     /// Blocks the thread on the specified future, returning the value with
     /// which that future completes.
-    pub(crate) fn block_on<F>(&mut self, f: F) -> Result<F::Output, AccessError>
-    where
-        F: std::future::Future,
-    {
+    pub(crate) fn block_on<F: std::future::Future>(&mut self, f: F) -> Result<F::Output, AccessError> {
         use crate::runtime::park::CachedParkThread;
 
         let mut park = CachedParkThread::new();
@@ -64,10 +61,7 @@ impl BlockingRegionGuard {
     ///
     /// If the future completes before `timeout`, the result is returned. If
     /// `timeout` elapses, then `Err` is returned.
-    pub(crate) fn block_on_timeout<F>(&mut self, f: F, timeout: Duration) -> Result<F::Output, ()>
-    where
-        F: std::future::Future,
-    {
+    pub(crate) fn block_on_timeout<F: std::future::Future>(&mut self, f: F, timeout: Duration) -> Result<F::Output, ()> {
         use crate::runtime::park::CachedParkThread;
         use std::task::Context;
         use std::task::Poll::Ready;
@@ -101,10 +95,7 @@ impl Drop for DisallowBlockInPlaceGuard {
         if self.0 {
             // XXX: Do we want some kind of assertion here, or is "best effort" okay?
             CONTEXT.with(|c| {
-                if let EnterRuntime::Entered {
-                    allow_block_in_place: false,
-                } = c.enterRuntime.get()
-                {
+                if let EnterRuntime::Entered { allow_block_in_place: false} = c.enterRuntime.get() {
                     c.enterRuntime.set(EnterRuntime::Entered {
                         allow_block_in_place: true,
                     });

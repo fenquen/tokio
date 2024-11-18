@@ -29,10 +29,10 @@ impl<T: 'static> Shared<T> {
     pub(crate) unsafe fn push_batch<L, I>(&self, shared: L, mut iter: I)
     where
         L: Lock<InjectSyncState>,
-        I: Iterator<Item = task::Notified<T>>,
+        I: Iterator<Item = task::NotifiedTask<T>>,
     {
         let first = match iter.next() {
-            Some(first) => first.into_raw(),
+            Some(first) => first.intoRaw(),
             None => return,
         };
 
@@ -44,7 +44,7 @@ impl<T: 'static> Shared<T> {
         // iterator overrides `for_each` to something that is easier for the
         // compiler to optimize than a loop.
         iter.for_each(|next| {
-            let next = next.into_raw();
+            let next = next.intoRaw();
 
             // safety: Holding the Notified for a task guarantees exclusive
             // access to the `queue_next` field.
@@ -84,7 +84,7 @@ impl<T: 'static> Shared<T> {
             while let Some(task) = curr {
                 curr = task.get_queue_next();
 
-                let _ = unsafe { task::Notified::<T>::from_raw(task) };
+                let _ = unsafe { task::NotifiedTask::<T>::fromRaw(task) };
             }
 
             return;

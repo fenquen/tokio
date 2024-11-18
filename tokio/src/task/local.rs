@@ -244,7 +244,7 @@ struct Shared {
     local_state: LocalState,
 
     /// Remote run queue sender.
-    queue: Mutex<Option<VecDeque<task::Notified<Arc<Shared>>>>>,
+    queue: Mutex<Option<VecDeque<task::NotifiedTask<Arc<Shared>>>>>,
 
     /// Wake the `LocalSet` task.
     waker: AtomicWaker,
@@ -257,7 +257,7 @@ struct LocalState {
     owner: ThreadId,
 
     /// Local run queue sender and receiver.
-    local_queue: UnsafeCell<VecDeque<task::Notified<Arc<Shared>>>>,
+    local_queue: UnsafeCell<VecDeque<task::NotifiedTask<Arc<Shared>>>>,
 
     /// Collection of all active tasks spawned onto this executor.
     owned: LocalOwnedTasks<Arc<Shared>>,
@@ -724,7 +724,7 @@ impl LocalSet {
         })
     }
 
-    fn pop_local(&self) -> Option<task::Notified<Arc<Shared>>> {
+    fn pop_local(&self) -> Option<task::NotifiedTask<Arc<Shared>>> {
         unsafe {
             // Safety: because the `LocalSet` itself is `!Send`, we know we are
             // on the same thread if we have access to the `LocalSet`, and can
@@ -905,7 +905,7 @@ impl<T: Future> Future for RunUntil<'_, T> {
 
 impl Shared {
     /// Schedule the provided task on the scheduler.
-    fn schedule(&self, task: task::Notified<Arc<Self>>) {
+    fn schedule(&self, task: task::NotifiedTask<Arc<Self>>) {
         CURRENT.with(|localdata| {
             match localdata.ctx.get() {
                 // If the current `LocalSet` is being polled, we don't need to wake it.
@@ -963,7 +963,7 @@ impl task::Schedule for Arc<Shared> {
         unsafe { self.local_state.task_remove(task) }
     }
 
-    fn schedule(&self, task: task::Notified<Self>) {
+    fn schedule(&self, task: task::NotifiedTask<Self>) {
         Shared::schedule(self, task);
     }
 
@@ -976,7 +976,7 @@ impl task::Schedule for Arc<Shared> {
 }
 
 impl LocalState {
-    unsafe fn task_pop_front(&self) -> Option<task::Notified<Arc<Shared>>> {
+    unsafe fn task_pop_front(&self) -> Option<task::NotifiedTask<Arc<Shared>>> {
         // The caller ensures it is called from the same thread that owns
         // the LocalSet.
         self.assert_called_from_owner_thread();
@@ -984,7 +984,7 @@ impl LocalState {
         self.local_queue.with_mut(|ptr| (*ptr).pop_front())
     }
 
-    unsafe fn task_push_back(&self, task: task::Notified<Arc<Shared>>) {
+    unsafe fn task_push_back(&self, task: task::NotifiedTask<Arc<Shared>>) {
         // The caller ensures it is called from the same thread that owns
         // the LocalSet.
         self.assert_called_from_owner_thread();
@@ -992,7 +992,7 @@ impl LocalState {
         self.local_queue.with_mut(|ptr| (*ptr).push_back(task));
     }
 
-    unsafe fn take_local_queue(&self) -> VecDeque<task::Notified<Arc<Shared>>> {
+    unsafe fn take_local_queue(&self) -> VecDeque<task::NotifiedTask<Arc<Shared>>> {
         // The caller ensures it is called from the same thread that owns
         // the LocalSet.
         self.assert_called_from_owner_thread();
@@ -1019,7 +1019,7 @@ impl LocalState {
 
     unsafe fn assert_owner(
         &self,
-        task: task::Notified<Arc<Shared>>,
+        task: task::NotifiedTask<Arc<Shared>>,
     ) -> task::LocalNotified<Arc<Shared>> {
         // The caller ensures it is called from the same thread that owns
         // the LocalSet.

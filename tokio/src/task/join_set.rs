@@ -414,8 +414,7 @@ impl<T: 'static> JoinSet<T> {
             Poll::Ready(Some(res))
         } else {
             // A JoinHandle generally won't emit a wakeup without being ready unless
-            // the coop limit has been reached. We yield to the executor in this
-            // case.
+            // the coop limit has been reached. We yield to the executor in this case
             cx.waker().wake_by_ref();
             Poll::Pending
         }

@@ -120,7 +120,7 @@ fn create_io_stack(enableIO: bool, eventCount: usize) -> io::Result<(IoStackEnum
         (IoStackEnum::Enabled(processDriver), IOHandleEnum::Enabled(ioDriverHandle), signalDriverHandle)
     } else {
         let park_thread = ParkThread::new();
-        let unpark_thread = park_thread.unpark();
+        let unpark_thread = park_thread.getUnparkThread();
         (IoStackEnum::Disabled(park_thread), IOHandleEnum::Disabled(unpark_thread), Default::default())
     };
 
@@ -184,7 +184,7 @@ cfg_not_io_driver! {
 
     fn create_io_stack(_enabled: bool, _nevents: usize) -> io::Result<(IoStackEnum, IOHandleEnum, Option<crate::runtime::signal::SignalDriverHandle>)> {
         let park_thread = ParkThread::new();
-        let unpark_thread = park_thread.unpark();
+        let unpark_thread = park_thread.getUnparkThread();
         Ok((IoStack(park_thread), unpark_thread, Default::default()))
     }
 
